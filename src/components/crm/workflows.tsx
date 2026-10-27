@@ -2,12 +2,12 @@
 
 import "@xyflow/react/dist/style.css";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
-import { ReactFlow, Background, BackgroundVariant, Controls, MiniMap, Handle, Position, ReactFlowProvider, addEdge, useNodesState, useEdgesState, type Connection, type Edge, type Node, type NodeProps, type NodeTypes } from "@xyflow/react";
+import { ReactFlow, Background, BackgroundVariant, Handle, MarkerType, Position, ReactFlowProvider, addEdge, useEdgesState, useNodesState, type Connection, type Edge, type Node, type NodeProps, type NodeTypes } from "@xyflow/react";
 import { toast } from "sonner";
-import { AlertCircle, ArrowRight, Bell, CheckCircle2, ChevronDown, FileJson, FlaskConical, GitBranch, Globe, History, ListTodo, Loader2, MousePointerClick, Pencil, Play, Plus, Save, Square, Timer, Trash2, TrendingUp, Workflow as WorkflowIcon, XCircle, type LucideIcon } from "lucide-react";
+import { AlertCircle, Bell, Check, CheckCircle2, ChevronDown, FileJson, Flag, GitBranch, Globe, History, Info, LayoutTemplate, Loader2, PenLine, Pencil, Play, Plus, Settings2, Timer, Trash2, TrendingUp, Upload, UserCheck, Workflow as WorkflowIcon, XCircle, Zap, type LucideIcon } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { DEAL_STAGES, TASK_PRIORITIES, faDateTime, faDuration, faNum, faPercent, stageLabel } from "@/lib/format";
@@ -17,13 +17,11 @@ import type { CustomerDto, RunDto, WorkflowDto, WfEdge, WfNode } from "@/lib/typ
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Drawer, DrawerContent, DrawerDescription, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -39,13 +37,13 @@ type FlowEdge = Edge;
 type RunResult = RunDto & { failureHint?: string; context?: Record<string, unknown> };
 type WorkflowDetail = WorkflowDto & { runs?: RunDto[] };
 
-/** نقشه وضعیت زنده گره‌ها در حین پخش اجرا (بین دیالوگ تست و بوم مشترک است) */
+/** نقشه وضعیت زنده گره‌ها در حین پخش اجرا (بین گزارش تست و بوم مشترک است) */
 const NodeStatusContext = createContext<Record<string, WfNodeStatus>>({});
 NodeStatusContext.displayName = "WfNodeStatus";
 
 const CONDITION_VARS = ["dealValue", "customerName", "customerId", "dealId"] as const;
 
-const ICONS: Record<string, LucideIcon> = { Play, Square, GitBranch, ListTodo, Bell, History, TrendingUp, Globe, Timer };
+const ICONS: Record<string, LucideIcon> = { Zap, PenLine, GitBranch, UserCheck, Bell, Timer, Flag, History, TrendingUp, Globe };
 const nodeMeta = (nodeType: string) => WF_NODE_TYPES.find((t) => t.type === nodeType) ?? WF_NODE_TYPES[0];
 const str = (v: unknown): string => (v === null || v === undefined ? "" : String(v));
 const runStatusColor = (s: string): string =>
@@ -74,22 +72,42 @@ function toWfEdges(edges: FlowEdge[]): WfEdge[] {
   return edges.map((e) => ({
     id: e.id, source: e.source, target: e.target,
     sourceHandle: e.sourceHandle ?? null, targetHandle: e.targetHandle ?? null,
-    label: typeof e.label === "string" ? e.label : undefined, animated: e.animated,
+    label: typeof e.label === "string" ? e.label : undefined, animated: false,
   }));
 }
 
-const edgeDecor = {
-  labelStyle: { fill: "var(--foreground)", fontSize: 10, fontWeight: 600 } as CSSProperties,
-  labelBgStyle: { fill: "var(--card)", fillOpacity: 0.92 } as CSSProperties,
-  labelBgPadding: [6, 3] as [number, number],
-  labelBgBorderRadius: 6,
-};
+/** ظاهر یال‌ها مطابق طرح: خط خاکستری با پیکان؛ بله سبز، خیر خاکستری */
+function edgeVisual(label?: string): Partial<Edge> {
+  const marker = (color: string) => ({ type: MarkerType.ArrowClosed, width: 15, height: 15, color });
+  const base = { animated: false } as const;
+  if (label === "بله") {
+    return {
+      ...base,
+      labelStyle: { fill: "#34d399", fontSize: 11, fontWeight: 700 } as CSSProperties,
+      labelBgStyle: { fill: "color-mix(in oklab, #10b981 18%, transparent)" } as CSSProperties,
+      labelBgPadding: [7, 4] as [number, number],
+      labelBgBorderRadius: 8,
+      markerEnd: marker("#10b981"),
+    };
+  }
+  if (label === "خیر") {
+    return {
+      ...base,
+      labelStyle: { fill: "#9ca3af", fontSize: 11, fontWeight: 700 } as CSSProperties,
+      labelBgStyle: { fill: "color-mix(in oklab, #6b7280 20%, transparent)" } as CSSProperties,
+      labelBgPadding: [7, 4] as [number, number],
+      labelBgBorderRadius: 8,
+      markerEnd: marker("#71717a"),
+    };
+  }
+  return { ...base, markerEnd: marker("#52525b") };
+}
 
 function toFlowEdges(edges: WfEdge[]): FlowEdge[] {
   return edges.map((e) => ({
     id: e.id, source: e.source, target: e.target,
     sourceHandle: e.sourceHandle ?? undefined, targetHandle: e.targetHandle ?? undefined,
-    label: e.label ?? undefined, animated: e.animated ?? true, ...edgeDecor,
+    label: e.label ?? undefined, ...edgeVisual(e.label ?? undefined),
   }));
 }
 
@@ -100,6 +118,68 @@ function parseJsonArr(raw: string | null | undefined): string[] {
   } catch {
     return [];
   }
+}
+
+// ─── پالت افزودن گره — دقیقاً مطابق طرح ───
+const PALETTE_GROUPS: { title?: string; types: string[] }[] = [
+  { types: ["start"] },
+  { title: "عملیات", types: ["create_task", "condition", "approval"] },
+  { title: "ارتباطات", types: ["notify"] },
+  { title: "انتظار / خروج", types: ["delay", "end"] },
+];
+
+const KNOWN_TEST_VARS: Record<string, unknown> = { dealValue: 150000000, contractValue: 60000000, carReady: true, stockCount: 2 };
+
+/** داده تستی پیش‌فرض: متغیرهای شرط‌ها را با مقادیر گذرنده پر می‌کند */
+function buildDefaultTestData(nodes: CrmFlowNode[], firstCustomerId?: string): string {
+  const obj: Record<string, unknown> = { customerName: "مشتری نمونه" };
+  if (firstCustomerId) obj.customerId = firstCustomerId;
+  for (const n of nodes) {
+    if (str(n.data.nodeType) !== "condition") continue;
+    for (const m of str(n.data.expression).match(/[a-zA-Z_]\w*/g) ?? []) {
+      if (m === "true" || m === "false" || m === "null" || m in obj) continue;
+      obj[m] = m in KNOWN_TEST_VARS ? KNOWN_TEST_VARS[m] : 100000000;
+    }
+  }
+  return JSON.stringify(obj, null, 2);
+}
+
+/** قالب نمونه «فروش خودرو (نمونه)» — همان فرایند طرح */
+function carTemplate(): { nodes: WfNode[]; edges: WfEdge[] } {
+  const nodes: WfNode[] = [
+    { id: "car_start", type: "crm", position: { x: 40, y: 210 }, data: { label: "درخواست مشتری", nodeType: "start", description: "دریافت درخواست خرید خودرو" } },
+    { id: "car_stock", type: "crm", position: { x: 330, y: 210 }, data: { label: "بررسی موجودی نمایشگاه", nodeType: "create_task", description: "بررسی موجودی خودروی درخواستی", taskTitle: "بررسی موجودی خودرو برای {{customerName}}", priority: "medium" } },
+    { id: "car_cond", type: "crm", position: { x: 640, y: 195 }, data: { label: "خودرو آماده فروش هست؟", nodeType: "condition", description: "بررسی آماده بودن خودروی مورد نظر", expression: "carReady == true" } },
+    { id: "car_finance", type: "crm", position: { x: 950, y: 60 }, data: { label: "بررسی مالی مشتری", nodeType: "create_task", description: "بررسی اعتبار و شرایط پرداخت", taskTitle: "بررسی مالی {{customerName}}", priority: "high" } },
+    { id: "car_deliver", type: "crm", position: { x: 1250, y: 60 }, data: { label: "هماهنگی تحویل خودرو", nodeType: "notify", description: "زمان‌بندی آزمایش و تحویل", message: "قرار آزمایش و تحویل خودرو با {{customerName}} هماهنگ شد" } },
+    { id: "car_info", type: "crm", position: { x: 950, y: 350 }, data: { label: "به مشتری اطلاع بده — ماشین به زودی می‌رسد", nodeType: "notify", description: "اطلاع‌رسانی زمان آماده شدن", message: "{{customerName}} عزیز، خودروی درخواستی به زودی به نمایشگاه می‌رسد" } },
+    { id: "car_end", type: "crm", position: { x: 1550, y: 205 }, data: { label: "پایان", nodeType: "end", description: "" } },
+  ];
+  const edges: WfEdge[] = [
+    { id: "ce1", source: "car_start", target: "car_stock" },
+    { id: "ce2", source: "car_stock", target: "car_cond" },
+    { id: "ce3", source: "car_cond", target: "car_finance", sourceHandle: "true", label: "بله" },
+    { id: "ce4", source: "car_cond", target: "car_info", sourceHandle: "false", label: "خیر" },
+    { id: "ce5", source: "car_finance", target: "car_deliver" },
+    { id: "ce6", source: "car_deliver", target: "car_end" },
+    { id: "ce7", source: "car_info", target: "car_end" },
+  ];
+  return { nodes, edges };
+}
+
+function templateWorkflow(): WorkflowDto {
+  const t = carTemplate();
+  return {
+    id: "",
+    name: "فروش خودرو (نمونه)",
+    description: "قالب آماده فروش خودرو — پس از ویرایش ذخیره کنید تا در فهرست فرایندها ثبت شود.",
+    isActive: false,
+    nodes: t.nodes,
+    edges: t.edges,
+    createdAt: new Date().toISOString(),
+    lastRun: null,
+    runCount: 0,
+  };
 }
 
 /** ردیف برچسب + محتوا (کاهش تکرار در فرم‌ها) */
@@ -113,48 +193,53 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// Custom React Flow node «crm»
+// Custom React Flow node «crm» — کارت گرد با آیکن‌رنگ و نقطه خروجی کهربایی
 // ─────────────────────────────────────────────────────────────────
 
 function CrmNodeView({ id, data, selected }: NodeProps<CrmFlowNode>) {
   const statuses = useContext(NodeStatusContext);
+  const hasRun = Object.keys(statuses).length > 0;
   const status = statuses[id] ?? data.status;
   const meta = nodeMeta(str(data.nodeType));
   const Icon = ICONS[meta.icon] ?? WorkflowIcon;
   const isCondition = str(data.nodeType) === "condition";
   return (
-    <div className={cn("wf-node relative rounded-xl border bg-card/95 shadow-sm backdrop-blur-sm", selected && "border-primary/60 ring-2 ring-primary/30", status === "success" && "wf-node-success", status === "failed" && "wf-node-failed", status === "running" && "wf-node-running")} style={{ width: 210 }}>
-      <div className="flex items-center gap-2 px-3 pt-2.5">
-        <span className="flex size-7 shrink-0 items-center justify-center rounded-lg" style={{ backgroundColor: `${meta.color}26`, color: meta.color }}>
+    <div
+      dir="rtl"
+      className={cn(
+        "wf-node relative rounded-2xl border bg-card shadow-xl shadow-black/25",
+        selected && "border-primary/70 ring-2 ring-primary/30",
+        status === "success" && "wf-node-success",
+        status === "failed" && "wf-node-failed",
+        status === "running" && "wf-node-running",
+        hasRun && !status && "opacity-40 saturate-50"
+      )}
+      style={{ width: 224 }}
+    >
+      <Handle type="target" position={Position.Left} style={{ width: 9, height: 9, background: "var(--muted-foreground)", borderColor: "var(--background)" }} />
+      <div className="flex items-start gap-2.5 p-3">
+        <span className="flex size-8 shrink-0 items-center justify-center rounded-lg" style={{ backgroundColor: `${meta.color}22`, color: meta.color }}>
           <Icon className="size-4" />
         </span>
-        <span className="truncate text-[13px] font-bold text-foreground">{str(data.label) || meta.label}</span>
-        <span className="ms-auto flex shrink-0 items-center">
+        <span className="min-w-0 flex-1 pt-0.5">
+          <span className="block text-[13px] font-bold leading-5 text-foreground">{str(data.label) || meta.label}</span>
+          {str(data.description) ? <span className="mt-0.5 block text-[11px] leading-4 text-muted-foreground">{data.description}</span> : null}
+        </span>
+      </div>
+      {status && (
+        <span className="absolute -left-2.5 -top-2.5 flex size-6 items-center justify-center rounded-full border bg-background shadow-md">
           {status === "running" && <Loader2 className="size-3.5 animate-spin text-primary" />}
           {status === "success" && <CheckCircle2 className="size-3.5 text-emerald-400" />}
           {status === "failed" && <XCircle className="size-3.5 text-red-400" />}
         </span>
-      </div>
-      {str(data.description) ? <p className="line-clamp-2 px-3 pt-1 text-[11px] leading-5 text-muted-foreground">{data.description}</p> : null}
-      <div className={cn("px-3 pb-2 pt-1.5", isCondition && "pb-6")}>
-        <span className="rounded-md px-1.5 py-0.5 text-[9px] font-medium" style={{ backgroundColor: `${meta.color}1a`, color: meta.color }}>
-          {meta.label}
-        </span>
-      </div>
-      {isCondition && (
-        <>
-          <span className="absolute bottom-1.5 text-[9px] font-bold text-emerald-400" style={{ right: "13%" }}>بله</span>
-          <span className="absolute bottom-1.5 text-[9px] font-bold text-red-400" style={{ left: "15%" }}>خیر</span>
-        </>
       )}
-      <Handle type="target" position={Position.Top} />
       {isCondition ? (
         <>
-          <Handle id="true" type="source" position={Position.Bottom} style={{ right: "22%", borderColor: "#10b981" }} />
-          <Handle id="false" type="source" position={Position.Bottom} style={{ left: "22%", borderColor: "#ef4444" }} />
+          <Handle id="true" type="source" position={Position.Right} style={{ top: "26%", width: 11, height: 11, background: "#f59e0b", borderColor: "#78350f" }} />
+          <Handle id="false" type="source" position={Position.Right} style={{ top: "74%", width: 11, height: 11, background: "#f59e0b", borderColor: "#78350f" }} />
         </>
       ) : (
-        <Handle type="source" position={Position.Bottom} />
+        <Handle type="source" position={Position.Right} style={{ width: 11, height: 11, background: "#f59e0b", borderColor: "#78350f" }} />
       )}
     </div>
   );
@@ -170,7 +255,7 @@ function ConfigFields({ nodeType, draft, patch }: { nodeType: string; draft: Crm
       return (
         <div className="space-y-2">
           <Field label="عبارت شرط">
-            <Input dir="ltr" className="font-mono text-xs" placeholder="dealValue > 100000000" value={str(draft.expression)} onChange={(e) => patch({ expression: e.target.value })} />
+            <Input dir="ltr" className="font-mono text-xs" placeholder="carReady == true" value={str(draft.expression)} onChange={(e) => patch({ expression: e.target.value })} />
           </Field>
           <div className="flex flex-wrap gap-1">
             {CONDITION_VARS.map((v) => (
@@ -190,7 +275,7 @@ function ConfigFields({ nodeType, draft, patch }: { nodeType: string; draft: Crm
       return (
         <div className="space-y-2">
           <Field label="عنوان وظیفه">
-            <Input value={str(draft.taskTitle)} placeholder="تماس پیگیری با {{customerName}}" onChange={(e) => patch({ taskTitle: e.target.value })} />
+            <Input value={str(draft.taskTitle)} placeholder="بررسی موجودی برای {{customerName}}" onChange={(e) => patch({ taskTitle: e.target.value })} />
           </Field>
           <p className="text-[10px] text-muted-foreground">از {"{{customerName}}"} برای درج خودکار نام مشتری استفاده کنید.</p>
           <Field label="اولویت">
@@ -203,10 +288,19 @@ function ConfigFields({ nodeType, draft, patch }: { nodeType: string; draft: Crm
           </Field>
         </div>
       );
+    case "approval":
+      return (
+        <div className="space-y-2">
+          <Field label="عنوان درخواست تأیید">
+            <Input value={str(draft.taskTitle)} placeholder="تأیید مدیر: {{customerName}}" onChange={(e) => patch({ taskTitle: e.target.value })} />
+          </Field>
+          <p className="text-[10px] leading-4 text-muted-foreground">یک وظیفهٔ واقعی با اولویت «زیاد» برای مدیر ایجاد می‌شود و فرایند ادامه پیدا می‌کند.</p>
+        </div>
+      );
     case "notify":
       return (
-        <Field label="متن اعلان">
-          <Textarea rows={3} className="text-xs" value={str(draft.message)} placeholder="اعلان فرآیند…" onChange={(e) => patch({ message: e.target.value })} />
+        <Field label="متن پیام یا ایمیل">
+          <Textarea rows={3} className="text-xs" value={str(draft.message)} placeholder="متن اطلاع‌رسانی…" onChange={(e) => patch({ message: e.target.value })} />
         </Field>
       );
     case "add_activity":
@@ -240,7 +334,7 @@ function ConfigFields({ nodeType, draft, patch }: { nodeType: string; draft: Crm
     case "delay":
       return (
         <div className="space-y-2">
-          <Field label="مدت تأخیر (میلی‌ثانیه)">
+          <Field label="مدت مکث (میلی‌ثانیه)">
             <Input type="number" min={0} max={3000} dir="ltr" className="font-mono text-xs" value={draft.ms === undefined || draft.ms === null ? "" : str(draft.ms)} onChange={(e) => patch({ ms: e.target.value === "" ? undefined : Math.min(Number(e.target.value), 3000) })} />
           </Field>
           <p className="text-[10px] text-muted-foreground">حداکثر ۳۰۰۰ میلی‌ثانیه</p>
@@ -252,7 +346,575 @@ function ConfigFields({ nodeType, draft, patch }: { nodeType: string; draft: Crm
 }
 
 // ─────────────────────────────────────────────────────────────────
-// LIST mode
+// Palette (افزودن گره) — سمت چپ بوم
+// ─────────────────────────────────────────────────────────────────
+
+function Palette({ onAdd }: { onAdd: (t: (typeof WF_NODE_TYPES)[number]) => void }) {
+  return (
+    <div className="flex h-full flex-col rounded-2xl border bg-card/50 p-3">
+      <h3 className="mb-2.5 flex items-center gap-1.5 text-xs font-bold text-foreground">
+        <Plus className="size-3.5 text-amber-400" /> افزودن گره
+      </h3>
+      <div className="flex gap-2 overflow-x-auto pb-1 xl:flex-col xl:overflow-x-visible xl:overflow-y-auto xl:pb-0">
+        {PALETTE_GROUPS.map((g, gi) => (
+          <div key={gi} className="xl:w-full">
+            {g.title && <p className="mb-1.5 mt-1 hidden text-[10px] font-bold text-muted-foreground xl:block">{g.title}</p>}
+            <div className="flex gap-2 xl:flex-col xl:gap-1.5">
+              {g.types.map((t) => {
+                const meta = nodeMeta(t);
+                const Icon = ICONS[meta.icon] ?? WorkflowIcon;
+                return (
+                  <button
+                    key={t} type="button" onClick={() => onAdd(meta)}
+                    className="flex min-w-[150px] shrink-0 items-center gap-2 rounded-xl border bg-background/60 px-2.5 py-2 text-right transition hover:border-amber-500/50 hover:bg-accent/40 xl:w-full xl:min-w-0"
+                  >
+                    <span className="flex size-7 shrink-0 items-center justify-center rounded-lg" style={{ backgroundColor: `${meta.color}22`, color: meta.color }}>
+                      <Icon className="size-3.5" />
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block whitespace-nowrap text-[11px] font-bold leading-4 xl:whitespace-normal">{meta.label}</span>
+                      <span className="hidden truncate text-[9px] text-muted-foreground xl:block">{meta.desc}</span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="mt-auto hidden items-start gap-1.5 pt-3 text-[10px] leading-4 text-muted-foreground xl:flex">
+        <Info className="mt-0.5 size-3 shrink-0" />
+        <span>برای اتصال روی دایره خروجی هر گره کلیک کنید، سپس گره مقصد را بزنید.</span>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Config panel — سمت راست بوم
+// ─────────────────────────────────────────────────────────────────
+
+function ConfigPanel({ node, draft, patch, apply, remove }: {
+  node: CrmFlowNode | null; draft: CrmNodeData | null;
+  patch: (p: Partial<CrmNodeData>) => void; apply: () => void; remove: () => void;
+}) {
+  return (
+    <div className="h-full rounded-2xl border bg-card/50 p-3">
+      <AnimatePresence mode="wait">
+        {node && draft ? (
+          <motion.div key={`cfg-${node.id}`} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 12 }} transition={{ duration: 0.2 }}>
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="text-xs font-bold">تنظیمات گره</h3>
+              <Badge variant="secondary" className="text-[9px]">{nodeMeta(str(draft.nodeType)).label}</Badge>
+            </div>
+            <div className="mt-3 space-y-2.5">
+              <Field label="عنوان"><Input className="text-xs" value={str(draft.label)} onChange={(e) => patch({ label: e.target.value })} /></Field>
+              <Field label="توضیح"><Textarea rows={2} className="text-xs" value={str(draft.description)} onChange={(e) => patch({ description: e.target.value })} /></Field>
+              <ConfigFields nodeType={str(draft.nodeType)} draft={draft} patch={patch} />
+            </div>
+            <div className="mt-3 flex gap-2">
+              <Button size="sm" className="h-8 flex-1" onClick={apply}>اعمال</Button>
+              <Button size="sm" variant="destructive" className="h-8 gap-1.5" onClick={remove}><Trash2 className="size-3.5" /> حذف</Button>
+            </div>
+          </motion.div>
+        ) : (
+          <motion.div key="cfg-empty" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex h-full flex-col items-center justify-center gap-3 px-3 py-10 text-center">
+            <span className="flex size-12 items-center justify-center rounded-2xl border bg-background">
+              <Settings2 className="size-5 text-muted-foreground" />
+            </span>
+            <div>
+              <p className="text-xs font-bold text-foreground">گره‌ای انتخاب نشده است</p>
+              <p className="mt-1.5 text-[11px] leading-5 text-muted-foreground">روی یک گره در بوم کلیک کنید تا تنظیمات آن اینجا نمایش داده شود.</p>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Legend — راهنمای وضعیت زیر بوم
+// ─────────────────────────────────────────────────────────────────
+
+function StatusDot({ color, label, pulse }: { color: string; label: string; pulse?: boolean }) {
+  return (
+    <span className="flex items-center gap-1.5">
+      <span className={cn("size-2 rounded-full", pulse && "animate-pulse")} style={{ backgroundColor: color }} />
+      {label}
+    </span>
+  );
+}
+
+function Legend() {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5 px-1 text-[10px] text-muted-foreground">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
+        <StatusDot color="#2dd4bf" label="موفق" />
+        <StatusDot color="#ef4444" label="خطا — نیاز به اصلاح" />
+        <StatusDot color="#f59e0b" label="در حال اجرا" pulse />
+        <StatusDot color="#71717a" label="در انتظار اجرا" />
+      </div>
+      <span className="hidden md:block">هر گره در تست، واقعاً روی داده‌های زندهٔ سازمان اجرا می‌شود و نتیجه در گزارش پایین ثبت می‌گردد.</span>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────
+// ReportPanel — گزارش اجرای تست (پنل پایین)
+// ─────────────────────────────────────────────────────────────────
+
+function ReportPanel({ result, playIndex, running, open, onToggle, testData, onTestDataChange, onInsertDefault, onFixNode, onOpenHistory, canOpenHistory }: {
+  result: RunResult | null; playIndex: number; running: boolean; open: boolean; onToggle: () => void;
+  testData: string; onTestDataChange: (v: string) => void; onInsertDefault: () => void;
+  onFixNode: (nodeId: string) => void; onOpenHistory: () => void; canOpenHistory: boolean;
+}) {
+  const [expandedStep, setExpandedStep] = useState<string | null>(null);
+  const playbackDone = !!result && playIndex >= result.nodeRuns.length;
+  const failedNode = result?.nodeRuns.find((nr) => nr.status === "failed") ?? null;
+
+  const artifacts = useMemo(() => {
+    if (!result) return [] as string[];
+    const out: string[] = [];
+    for (const nr of result.nodeRuns) {
+      try {
+        const o = nr.output ? (JSON.parse(nr.output) as Record<string, unknown>) : null;
+        if (!o) continue;
+        if (o.createdTaskTitle) out.push(`وظیفه ساخته شد: ${String(o.createdTaskTitle)}`);
+        else if (o.approvalRequired) out.push(`تأیید مدیر ثبت شد: ${String(o.approvalRequired)}`);
+        else if (o.activityId) out.push("فعالیت در سوابق مشتری ثبت شد");
+        else if (o.notified) out.push(`اعلان: ${String(o.notified)}`);
+        else if (o.dealStage) out.push(`مرحله فرصت ← ${stageLabel(String(o.dealStage))}`);
+      } catch {
+        /* خروجی JSON معتبر نیست — نادیده */
+      }
+    }
+    return out;
+  }, [result]);
+
+  return (
+    <div className="rounded-2xl border bg-card/50 shadow-sm">
+      <div className="flex items-center gap-2.5 px-4 py-3">
+        <button type="button" onClick={onToggle} aria-expanded={open} className="flex min-w-0 flex-1 items-center gap-2.5 text-right">
+          <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-amber-500/15 text-amber-400"><Zap className="size-4" /></span>
+          <span className="text-sm font-bold">گزارش اجرای تست</span>
+          {running && (
+            <Badge variant="secondary" className="gap-1 text-[10px]"><Loader2 className="size-3 animate-spin" /> در حال اجرا…</Badge>
+          )}
+          {result && !running && playbackDone && (
+            <Badge variant="secondary" className={cn("text-[10px]", result.status === "success" ? "text-emerald-400" : "text-red-400")}>
+              {result.status === "success" ? "اجرای موفق" : "اجرای ناموفق"} · {faDuration(result.duration)}
+            </Badge>
+          )}
+          <ChevronDown className={cn("size-4 shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} />
+        </button>
+        <Button type="button" variant="ghost" size="sm" className="h-8 gap-1.5 text-xs text-muted-foreground" disabled={!canOpenHistory} onClick={onOpenHistory}>
+          <History className="size-3.5" /> تاریخچه
+        </Button>
+      </div>
+      {open && (
+        <div className="border-t px-4 py-4">
+          {!result && !running ? (
+            <div className="py-6 text-center">
+              <p className="text-sm leading-7 text-muted-foreground">دکمه «تست فرایند» را بزنید تا اجرای گام‌به‌گام هر گره (موفق/خطا و علائم آن) به‌صورت زنده اینجا ثبت شود.</p>
+            </div>
+          ) : (
+            <div className="grid gap-5 lg:grid-cols-2">
+              {/* مسیر اجرا */}
+              <div className="min-w-0">
+                <h4 className="mb-2 flex items-center gap-1.5 text-[11px] font-bold text-muted-foreground"><GitBranch className="size-3.5" /> مسیر اجرا (گام‌به‌گام)</h4>
+                {running && !result ? (
+                  <div className="flex items-center gap-2 rounded-xl border bg-background/50 px-3 py-4 text-xs text-muted-foreground">
+                    <Loader2 className="size-4 animate-spin text-amber-400" /> در حال اجرای واقعی فرایند روی داده‌ها…
+                  </div>
+                ) : (
+                  <div className="max-h-64 space-y-1.5 overflow-y-auto pe-1">
+                    {result?.nodeRuns.map((nr, i) => {
+                      if (i > playIndex) return null; // نمایش تدریجی در حین پخش
+                      const st = i < playIndex ? nr.status : "running";
+                      const isFailed = st === "failed";
+                      const dur = nr.startedAt && nr.finishedAt ? faDuration(new Date(nr.finishedAt).getTime() - new Date(nr.startedAt).getTime()) : null;
+                      const logs = parseJsonArr(nr.logs);
+                      return (
+                        <motion.div key={nr.id} initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.25 }}>
+                          <button
+                            type="button" onClick={() => setExpandedStep((p) => (p === nr.id ? null : nr.id))}
+                            className={cn("flex w-full items-center gap-2.5 rounded-xl border px-3 py-2 text-right transition", isFailed ? "border-red-500/40 bg-red-500/5" : "border-border bg-background/50 hover:border-primary/40")}
+                          >
+                            <span className="flex size-6 shrink-0 items-center justify-center rounded-full border bg-background">
+                              {st === "running" && <Loader2 className="size-3.5 animate-spin text-primary" />}
+                              {st === "success" && <CheckCircle2 className="size-3.5 text-emerald-400" />}
+                              {isFailed && <XCircle className="size-3.5 text-red-400" />}
+                            </span>
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-xs font-bold">{nr.nodeName}</span>
+                              {dur && <span className="block text-[10px] text-muted-foreground">{dur}</span>}
+                            </span>
+                            {isFailed && <Badge variant="destructive" className="shrink-0 text-[9px]">خطا</Badge>}
+                            <ChevronDown className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform", expandedStep === nr.id && "rotate-180")} />
+                          </button>
+                          {expandedStep === nr.id && (
+                            <div className="mt-1 space-y-2 rounded-xl border bg-background/60 p-2.5">
+                              {logs.length > 0 && (
+                                <ul className="space-y-1">
+                                  {logs.map((l, li) => <li key={li} className="text-[11px] leading-5 text-muted-foreground">• {l}</li>)}
+                                </ul>
+                              )}
+                              {isFailed && (
+                                <div className="space-y-2">
+                                  <div className="rounded-lg border border-red-500/40 bg-red-500/10 p-2 text-[11px] leading-5 text-red-400">{nr.error}</div>
+                                  {result?.failureHint && <p className="text-[11px] leading-5 text-muted-foreground">{result.failureHint}</p>}
+                                  <Button type="button" size="sm" variant="outline" className="h-7 w-full gap-1.5 text-[11px]" onClick={() => onFixNode(nr.nodeId)}>
+                                    <Pencil className="size-3" /> اصلاح این گره در طراح
+                                  </Button>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </motion.div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+              {/* جمع‌بندی + داده تستی */}
+              <div className="min-w-0 space-y-3">
+                {result && playbackDone && (
+                  result.status === "success" ? (
+                    <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3">
+                      <div className="flex items-center gap-2 text-sm font-bold text-emerald-400">
+                        <CheckCircle2 className="size-4 shrink-0" /> فرایند با موفقیت اجرا شد در {faDuration(result.duration)}
+                      </div>
+                      {artifacts.length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {artifacts.map((a, i) => (
+                            <span key={i} className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] text-emerald-300">{a}</span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3">
+                      <div className="flex items-center gap-2 text-sm font-bold text-red-400">
+                        <AlertCircle className="size-4 shrink-0" /> فرایند در گره «{failedNode?.nodeName ?? "نامشخص"}» متوقف شد
+                      </div>
+                      {result.failureHint && <p className="mt-1.5 text-[11px] leading-5 text-muted-foreground">{result.failureHint}</p>}
+                      {failedNode && (
+                        <Button type="button" size="sm" variant="outline" className="mt-2.5 h-7 gap-1.5 text-[11px]" onClick={() => onFixNode(failedNode.nodeId)}>
+                          <Pencil className="size-3" /> اصلاح این گره در طراح
+                        </Button>
+                      )}
+                    </div>
+                  )
+                )}
+                <details className="rounded-xl border bg-background/40 px-3 py-2.5">
+                  <summary className="cursor-pointer select-none text-xs font-bold">داده تستی (JSON)</summary>
+                  <Textarea dir="ltr" spellCheck={false} className="mt-2 h-24 resize-none font-mono text-[11px]" value={testData} onChange={(e) => onTestDataChange(e.target.value)} />
+                  <div className="mt-2 flex items-center justify-between gap-2">
+                    <p className="text-[10px] leading-4 text-muted-foreground">شرط‌ها با این داده ارزیابی می‌شوند.</p>
+                    <Button type="button" variant="outline" size="sm" className="h-6 gap-1 px-2 text-[10px]" onClick={onInsertDefault}>
+                      <FileJson className="size-3" /> درج پیش‌فرض
+                    </Button>
+                  </div>
+                </details>
+                {result && playbackDone && result.context && (
+                  <details className="rounded-xl border bg-background/40 px-3 py-2.5">
+                    <summary className="cursor-pointer select-none text-xs font-bold text-muted-foreground">کانتکست نهایی اجرا</summary>
+                    <pre dir="ltr" className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words font-mono text-[10px] leading-5 text-muted-foreground">{JSON.stringify(result.context, null, 2)}</pre>
+                  </details>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Designer — طراح گرافیکی فرایند
+// ─────────────────────────────────────────────────────────────────
+
+const CANVAS_H = "h-[56vh] min-h-[440px]";
+
+function Designer({ workflow, workflows, firstCustomerId, autoRun, onStatuses, onLoad, onTemplate, onNew }: {
+  workflow: WorkflowDto | null; workflows: WorkflowDto[]; firstCustomerId?: string; autoRun: boolean;
+  onStatuses: (m: Record<string, WfNodeStatus>) => void;
+  onLoad: (id: string) => void; onTemplate: () => void; onNew: () => void;
+}) {
+  const qc = useQueryClient();
+  const [name, setName] = useState(workflow?.name ?? "");
+  const [savedId, setSavedId] = useState<string | null>(workflow?.id || null);
+  const [isActive, setIsActive] = useState<boolean>(workflow?.isActive ?? false);
+
+  const initialNodes = toFlowNodes(workflow?.nodes ?? [{ id: "start_1", type: "crm", position: { x: 120, y: 200 }, data: { label: "شروع", nodeType: "start", description: "نقطه آغاز فرایند" } }]);
+  const initialEdges = toFlowEdges(workflow?.edges ?? []);
+  const [nodes, setNodes, onNodesChange] = useNodesState<CrmFlowNode>(initialNodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<FlowEdge>(initialEdges);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [draft, setDraft] = useState<CrmNodeData | null>(null);
+  const [testData, setTestData] = useState<string>(() => buildDefaultTestData(initialNodes, firstCustomerId));
+  const [result, setResult] = useState<RunResult | null>(null);
+  const [playIndex, setPlayIndex] = useState(0);
+  const [running, setRunning] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [reportOpen, setReportOpen] = useState(true);
+  const [histOpen, setHistOpen] = useState(false);
+
+  const nodeTypes = useMemo<NodeTypes>(() => ({ crm: CrmNodeView }), []);
+
+  // پخش انیمیشنی: هر ۵۰۰ms یک گره در مسیر جلو می‌رود
+  useEffect(() => {
+    if (!result) return;
+    const timer = setInterval(() => {
+      setPlayIndex((p) => {
+        if (p >= result.nodeRuns.length) {
+          clearInterval(timer);
+          return p;
+        }
+        return p + 1;
+      });
+    }, 500);
+    return () => clearInterval(timer);
+  }, [result]);
+
+  // نگاشت playIndex → وضعیت هر گره (روی بوم از طریق Context اعمال می‌شود)
+  useEffect(() => {
+    if (!result) return;
+    const map: Record<string, WfNodeStatus> = {};
+    result.nodeRuns.forEach((nr, i) => {
+      if (i < playIndex) map[nr.nodeId] = nr.status === "failed" ? "failed" : "success";
+      else if (i === playIndex) map[nr.nodeId] = "running";
+    });
+    onStatuses(map);
+  }, [result, playIndex, onStatuses]);
+
+  const openConfig = useCallback((node: CrmFlowNode) => {
+    setSelectedNodeId(node.id);
+    setDraft({ ...node.data });
+  }, []);
+
+  const clearSelection = useCallback(() => {
+    setSelectedNodeId(null);
+    setDraft(null);
+    setNodes((nds) => nds.map((n) => ({ ...n, selected: false })));
+  }, [setNodes]);
+
+  const onConnect = useCallback(
+    (c: Connection) => {
+      const label = c.sourceHandle === "true" ? "بله" : c.sourceHandle === "false" ? "خیر" : undefined;
+      setEdges((eds) => addEdge({ ...c, id: `e_${Date.now().toString(36)}_${Math.floor(Math.random() * 1000)}`, label, ...edgeVisual(label) }, eds));
+    },
+    [setEdges]
+  );
+
+  const addNode = useCallback(
+    (t: (typeof WF_NODE_TYPES)[number]) => {
+      const id = `n_${Date.now().toString(36)}_${Math.floor(Math.random() * 1000)}`;
+      setNodes((nds) => [...nds, { id, type: "crm" as const, position: { x: 140 + (nds.length % 5) * 70, y: 90 + (nds.length % 4) * 80 }, data: { label: t.label, nodeType: t.type, description: t.desc } }]);
+    },
+    [setNodes]
+  );
+
+  const patch = useCallback((p: Partial<CrmNodeData>) => setDraft((d) => (d ? { ...d, ...p } : d)), []);
+
+  const applyConfig = useCallback(() => {
+    if (!selectedNodeId || !draft) return;
+    setNodes((nds) => nds.map((n) => (n.id === selectedNodeId ? { ...n, data: { ...n.data, ...draft } } : n)));
+    toast.success("تنظیمات گره اعمال شد");
+  }, [selectedNodeId, draft, setNodes]);
+
+  const deleteSelected = useCallback(() => {
+    if (!selectedNodeId) return;
+    setNodes((nds) => nds.filter((n) => n.id !== selectedNodeId));
+    setEdges((eds) => eds.filter((e) => e.source !== selectedNodeId && e.target !== selectedNodeId));
+    setSelectedNodeId(null);
+    setDraft(null);
+    toast.info("گره حذف شد");
+  }, [selectedNodeId, setNodes, setEdges]);
+
+  const focusNode = useCallback(
+    (nodeId: string) => {
+      const n = nodes.find((x) => x.id === nodeId);
+      if (!n) return;
+      setSelectedNodeId(nodeId);
+      setDraft({ ...n.data });
+      setNodes((nds) => nds.map((x) => ({ ...x, selected: x.id === nodeId })));
+    },
+    [nodes, setNodes]
+  );
+
+  const [publishing, setPublishing] = useState(false);
+  const togglePublish = useCallback(async () => {
+    if (!savedId) {
+      toast.error("ابتدا فرایند را ذخیره کنید");
+      return;
+    }
+    setPublishing(true);
+    try {
+      const wf = await jsonFetch<WorkflowDto>(`/api/workflows/${savedId}`, { method: "PUT", body: JSON.stringify({ isActive: !isActive }) });
+      setIsActive(wf.isActive);
+      qc.invalidateQueries({ queryKey: ["workflows"] });
+      toast.success(wf.isActive ? "فرایند منتشر شد" : "انتشار فرایند لغو شد");
+    } catch (e) {
+      toast.error(errMsg(e));
+    } finally {
+      setPublishing(false);
+    }
+  }, [savedId, isActive, qc]);
+
+  const saveNow = useCallback(async (): Promise<string | null> => {
+    if (!name.trim()) {
+      toast.error("نام فرایند را وارد کنید");
+      return null;
+    }
+    if (!nodes.some((n) => str(n.data.nodeType) === "start")) {
+      toast.error("فرایند بدون گره شروع قابل ذخیره نیست");
+      return null;
+    }
+    setSaving(true);
+    try {
+      const body = { name: name.trim(), description: workflow?.description ?? null, isActive: savedId ? isActive : true, nodes: toWfNodes(nodes), edges: toWfEdges(edges) };
+      const wf = savedId
+        ? await jsonFetch<WorkflowDto>(`/api/workflows/${savedId}`, { method: "PUT", body: JSON.stringify(body) })
+        : await jsonFetch<WorkflowDto>("/api/workflows", { method: "POST", body: JSON.stringify(body) });
+      setSavedId(wf.id);
+      setIsActive(wf.isActive);
+      qc.invalidateQueries({ queryKey: ["workflows"] });
+      toast.success("فرایند با موفقیت ذخیره شد");
+      return wf.id;
+    } catch (e) {
+      toast.error(errMsg(e));
+      return null;
+    } finally {
+      setSaving(false);
+    }
+  }, [name, nodes, edges, savedId, isActive, workflow?.description, qc]);
+
+  const runTest = useCallback(async () => {
+    if (running) return;
+    setReportOpen(true);
+    const id = savedId ?? (await saveNow());
+    if (!id) return;
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(testData || "{}") as Record<string, unknown>;
+    } catch {
+      toast.error("داده تستی باید JSON معتبر باشد");
+      return;
+    }
+    if (firstCustomerId && !parsed.customerId) parsed.customerId = firstCustomerId;
+    setRunning(true);
+    try {
+      const r = await jsonFetch<RunResult>(`/api/workflows/${id}/run`, { method: "POST", body: JSON.stringify({ testData: parsed }) });
+      setResult(r);
+      setPlayIndex(0);
+      qc.invalidateQueries({ queryKey: ["workflows"] });
+      qc.invalidateQueries({ queryKey: ["workflow-detail", id] });
+    } catch (e) {
+      toast.error(errMsg(e));
+    } finally {
+      setRunning(false);
+    }
+  }, [running, savedId, saveNow, testData, firstCustomerId, qc]);
+
+  // اجرای خودکار پس از «اجرای تست» از فهرست فرایندها
+  const autoRan = useRef(false);
+  useEffect(() => {
+    if (autoRun && !autoRan.current) {
+      autoRan.current = true;
+      void runTest();
+    }
+  }, [autoRun, runTest]);
+
+  const selNode = nodes.find((n) => n.id === selectedNodeId) ?? null;
+
+  return (
+    <div className="mt-4 space-y-3">
+      {/* نوار ابزار */}
+      <div className="flex flex-wrap items-center gap-2 rounded-2xl border bg-card/50 p-2.5 shadow-sm">
+        <Button type="button" onClick={() => void runTest()} disabled={running} className="gap-1.5 bg-amber-500 font-bold text-amber-950 shadow-lg shadow-amber-500/25 hover:bg-amber-400">
+          {running ? <Loader2 className="size-4 animate-spin" /> : <Play className="size-4" />} تست فرایند
+        </Button>
+        <Button type="button" variant="outline" onClick={() => void saveNow()} disabled={saving} className="gap-1.5 border-emerald-500/40 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 hover:text-emerald-300">
+          {saving ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />} ذخیره
+        </Button>
+        <Button type="button" variant="outline" onClick={() => void togglePublish()} disabled={!savedId || publishing} title={isActive ? "فرایند فعال است" : "فرایند غیرفعال است"} className="gap-1.5 text-muted-foreground">
+          <Upload className="size-4" /> انتشار
+          <span className={cn("size-1.5 rounded-full", isActive ? "bg-emerald-400" : "bg-zinc-500")} aria-hidden />
+        </Button>
+        <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="فرایند: بدون نام" aria-label="نام فرایند" className="h-9 w-44 font-bold sm:w-56" />
+        <Button type="button" variant="outline" onClick={onTemplate} className="gap-1.5"><LayoutTemplate className="size-4" /> قالب نمونه</Button>
+        <Button type="button" variant="outline" onClick={onNew} className="gap-1.5"><Plus className="size-4" /> فرایند جدید</Button>
+        <span className="ms-auto" />
+        <Select value={savedId ?? undefined} onValueChange={onLoad}>
+          <SelectTrigger aria-label="بارگذاری فرایند ذخیره‌شده" className="h-9 w-[170px] text-xs sm:w-[210px]">
+            <SelectValue placeholder="فرایند ذخیره‌شده…" />
+          </SelectTrigger>
+          <SelectContent>
+            {workflows.length === 0 ? (
+              <div className="px-3 py-2 text-xs text-muted-foreground">هنوز فرایندی ذخیره نشده است.</div>
+            ) : (
+              workflows.map((w) => <SelectItem key={w.id} value={w.id} className="text-xs">{w.name}</SelectItem>)
+            )}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* تنظیمات (راست) + بوم (وسط) + پالت (چپ) */}
+      <div className="flex flex-col gap-3 xl:flex-row xl:items-stretch">
+        <div className="w-full shrink-0 xl:h-[56vh] xl:min-h-[440px] xl:w-60 xl:overflow-y-auto xl:pe-0.5">
+          <ConfigPanel node={selNode} draft={draft} patch={patch} apply={applyConfig} remove={deleteSelected} />
+        </div>
+        <div className="relative min-w-0 flex-1 overflow-hidden rounded-2xl border bg-background shadow-sm">
+          <div dir="ltr" className={CANVAS_H}>
+            <ReactFlowProvider>
+              <ReactFlow
+                nodes={nodes} edges={edges}
+                onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect}
+                onNodeClick={(_, node) => openConfig(node)}
+                onPaneClick={clearSelection}
+                nodeTypes={nodeTypes}
+                defaultViewport={{ x: 24, y: 10, zoom: 0.78 }}
+                deleteKeyCode={["Backspace", "Delete"]}
+                minZoom={0.2} maxZoom={1.6}
+                proOptions={{ hideAttribution: true }}
+              >
+                <Background variant={BackgroundVariant.Dots} gap={22} size={1.7} color="color-mix(in oklab, var(--muted-foreground) 32%, transparent)" />
+              </ReactFlow>
+            </ReactFlowProvider>
+          </div>
+        </div>
+        <div className="w-full shrink-0 xl:h-[56vh] xl:min-h-[440px] xl:w-52 xl:overflow-hidden">
+          <Palette onAdd={addNode} />
+        </div>
+      </div>
+
+      <Legend />
+
+      <ReportPanel
+        key={result?.runId ?? "empty"}
+        result={result}
+        playIndex={playIndex}
+        running={running}
+        open={reportOpen}
+        onToggle={() => setReportOpen((v) => !v)}
+        testData={testData}
+        onTestDataChange={setTestData}
+        onInsertDefault={() => setTestData(buildDefaultTestData(nodes, firstCustomerId))}
+        onFixNode={focusNode}
+        onOpenHistory={() => setHistOpen(true)}
+        canOpenHistory={!!savedId}
+      />
+
+      <RunsHistoryDrawer workflowId={savedId} open={histOpen} onOpenChange={setHistOpen} />
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────
+// فرایندهای جاری — list mode
 // ─────────────────────────────────────────────────────────────────
 
 function WorkflowCard({ wf, index, onEdit, onRun, onDelete, deleting }: {
@@ -263,7 +925,7 @@ function WorkflowCard({ wf, index, onEdit, onRun, onDelete, deleting }: {
     <motion.div
       initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35, delay: index * 0.06, ease: "easeOut" }}
       onClick={onEdit}
-      className="group cursor-pointer rounded-xl border bg-card/60 p-4 transition hover:border-primary/40 hover:bg-card hover:shadow-lg hover:shadow-black/10"
+      className="group cursor-pointer rounded-2xl border bg-card/60 p-4 transition hover:border-primary/40 hover:bg-card hover:shadow-lg hover:shadow-black/10"
     >
       <div className="flex items-start justify-between gap-2">
         <h3 className="text-[15px] font-bold text-foreground">{wf.name}</h3>
@@ -271,7 +933,7 @@ function WorkflowCard({ wf, index, onEdit, onRun, onDelete, deleting }: {
       </div>
       <p className="mt-1 line-clamp-2 min-h-8 text-xs leading-5 text-muted-foreground">{wf.description || "بدون توضیح"}</p>
       <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
-        <span>{faNum(wf.runCount)} اجرا</span>
+        <span>{faNum(wf.runCount ?? 0)} اجرا</span>
         {wf.successRate !== null && wf.successRate !== undefined && <span>نرخ موفقیت {faPercent(wf.successRate)}</span>}
         {wf.lastRun && (
           <span className="flex items-center gap-1.5">
@@ -282,16 +944,16 @@ function WorkflowCard({ wf, index, onEdit, onRun, onDelete, deleting }: {
       </div>
       <div className="mt-4 flex items-center gap-1.5 border-t pt-3" onClick={(e) => e.stopPropagation()}>
         <Button variant="outline" size="sm" className="h-7 flex-1 gap-1.5 text-xs" onClick={onEdit}><Pencil className="size-3.5" /> ویرایش</Button>
-        <Button variant="secondary" size="sm" className="h-7 flex-1 gap-1.5 text-xs" onClick={onRun}><FlaskConical className="size-3.5" /> اجرای تست</Button>
-        <Button variant="ghost" size="sm" className="h-7 text-xs text-destructive hover:text-destructive" disabled={deleting} onClick={() => setConfirmOpen(true)}>
+        <Button variant="secondary" size="sm" className="h-7 flex-1 gap-1.5 text-xs" onClick={onRun}><Play className="size-3.5" /> اجرای تست</Button>
+        <Button variant="ghost" size="sm" className="h-7 text-xs text-destructive hover:text-destructive" disabled={deleting} onClick={() => setConfirmOpen(true)} aria-label={`حذف ${wf.name}`}>
           <Trash2 className="size-3.5" />
         </Button>
       </div>
       <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <AlertDialogContent dir="rtl">
           <AlertDialogHeader dir="rtl">
-            <AlertDialogTitle>حذف فرآیند «{wf.name}»؟</AlertDialogTitle>
-            <AlertDialogDescription>همه اجراهای ثبت‌شده این فرآیند نیز حذف خواهند شد و قابل بازگشت نیست.</AlertDialogDescription>
+            <AlertDialogTitle>حذف فرایند «{wf.name}»؟</AlertDialogTitle>
+            <AlertDialogDescription>همه اجراهای ثبت‌شده این فرایند نیز حذف خواهند شد و قابل بازگشت نیست.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter dir="rtl">
             <AlertDialogCancel>انصراف</AlertDialogCancel>
@@ -303,32 +965,28 @@ function WorkflowCard({ wf, index, onEdit, onRun, onDelete, deleting }: {
   );
 }
 
-function ListView({ workflows, isLoading, deletingId, onNew, onEdit, onRun, onDelete }: {
+function ListView({ workflows, isLoading, deletingId, onNew, onTemplate, onEdit, onRun, onDelete }: {
   workflows: WorkflowDto[]; isLoading: boolean; deletingId: string | null;
-  onNew: () => void; onEdit: (wf: WorkflowDto) => void; onRun: (wf: WorkflowDto) => void; onDelete: (id: string) => void;
+  onNew: () => void; onTemplate: () => void; onEdit: (wf: WorkflowDto) => void; onRun: (wf: WorkflowDto) => void; onDelete: (id: string) => void;
 }) {
   return (
-    <div className="space-y-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-extrabold tracking-tight text-foreground">فرآیندساز اتوماسیون</h1>
-          <p className="mt-1 text-sm text-muted-foreground">جریان‌های کاری بصری بسازید، با داده واقعی تست کنید و اجراها را قدم‌به‌قدم دنبال کنید.</p>
-        </div>
-        <Button onClick={onNew} className="gap-1.5"><Plus className="size-4" /> فرآیند جدید</Button>
-      </div>
+    <div className="mt-4">
       {isLoading ? (
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-44 rounded-xl" />)}</div>
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-44 rounded-2xl" />)}</div>
       ) : workflows.length === 0 ? (
         <motion.div initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} className="flex flex-col items-center justify-center rounded-2xl border border-dashed px-6 py-16 text-center">
           <div className="relative mb-5">
             <span className="pulse-dot absolute inset-0 rounded-full text-primary" aria-hidden />
             <span className="flex size-16 items-center justify-center rounded-2xl border bg-card shadow-sm"><WorkflowIcon className="size-8 text-primary" /></span>
           </div>
-          <h3 className="text-lg font-bold">اولین فرآیند خودکار خود را بسازید</h3>
+          <h3 className="text-lg font-bold">اولین فرایند خودکار خود را بسازید</h3>
           <p className="mt-2 max-w-sm text-sm leading-6 text-muted-foreground">
-            گره‌ها را به‌هم وصل کنید، شرط بگذارید و با یک کلیک اجرای واقعی ببینید — ساخت وظیفه، ثبت فعالیت، شرط‌گذاری روی داده‌ها و بیشتر.
+            گره‌ها را به هم وصل کنید، شرط بگذارید و با «تست فرایند» نتیجه واقعی را زنده ببینید — ساخت وظیفه، اطلاع‌رسانی و شاخه‌بندی مسیر.
           </p>
-          <Button className="mt-5 gap-1.5" onClick={onNew}><Plus className="size-4" /> ساختن فرآیند</Button>
+          <div className="mt-5 flex flex-wrap justify-center gap-2">
+            <Button onClick={onNew} className="gap-1.5"><Plus className="size-4" /> ساختن فرایند</Button>
+            <Button variant="outline" onClick={onTemplate} className="gap-1.5"><LayoutTemplate className="size-4" /> قالب نمونه</Button>
+          </div>
         </motion.div>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
@@ -358,7 +1016,7 @@ function RunsHistoryDrawer({ workflowId, open, onOpenChange }: { workflowId: str
       <DrawerContent className="max-h-[75vh]">
         <DrawerHeader dir="rtl" className="mx-auto w-full max-w-2xl text-right">
           <DrawerTitle className="flex items-center gap-2"><History className="size-4 text-primary" /> تاریخچه اجراها</DrawerTitle>
-          <DrawerDescription className="text-right">۱۰ اجرای اخیر این فرآیند — برای دیدن گره‌ها باز کنید.</DrawerDescription>
+          <DrawerDescription className="text-right">۱۰ اجرای اخیر این فرایند — برای دیدن گره‌ها باز کنید.</DrawerDescription>
         </DrawerHeader>
         <ScrollArea className="mx-auto h-[45vh] w-full max-w-2xl px-4 pb-8">
           {q.isLoading ? (
@@ -401,395 +1059,15 @@ function RunsHistoryDrawer({ workflowId, open, onOpenChange }: { workflowId: str
 }
 
 // ─────────────────────────────────────────────────────────────────
-// RUN dialog — تست واقعی فرآیند با پخش انیمیشنی
-// ─────────────────────────────────────────────────────────────────
-
-function RunDialog({ workflow, open, onOpenChange, firstCustomerId, onGoToNode, onStatuses }: {
-  workflow: WorkflowDto | null; open: boolean; onOpenChange: (v: boolean) => void;
-  firstCustomerId?: string; onGoToNode: (nodeId: string) => void; onStatuses: (m: Record<string, WfNodeStatus>) => void;
-}) {
-  const qc = useQueryClient();
-  const template = useMemo(
-    () => JSON.stringify(firstCustomerId ? { dealValue: 150000000, customerName: "شرکت پارس فناوری", customerId: firstCustomerId } : { dealValue: 150000000, customerName: "شرکت پارس فناوری" }, null, 2),
-    [firstCustomerId]
-  );
-  // کامپوننت با key در ماژول ریشه remount می‌شود → این مقادیر در هر بازشدن تازه می‌شوند
-  const [testData, setTestData] = useState(template);
-  const [result, setResult] = useState<RunResult | null>(null);
-  const [playIndex, setPlayIndex] = useState(0);
-  const [expandedStep, setExpandedStep] = useState<string | null>(null);
-
-  // پخش انیمیشنی: هر ۵۰۰ms یک گره در مسیر جلو می‌رود
-  useEffect(() => {
-    if (!result) return;
-    const timer = setInterval(() => {
-      setPlayIndex((p) => {
-        if (p >= result.nodeRuns.length) {
-          clearInterval(timer);
-          return p;
-        }
-        return p + 1;
-      });
-    }, 500);
-    return () => clearInterval(timer);
-  }, [result]);
-
-  // نگاشت playIndex → وضعیت هر گره (روی بوم ویرایشگر از طریق Context اعمال می‌شود)
-  useEffect(() => {
-    if (!result) return;
-    const map: Record<string, WfNodeStatus> = {};
-    result.nodeRuns.forEach((nr, i) => {
-      if (i < playIndex) map[nr.nodeId] = nr.status === "failed" ? "failed" : "success";
-      else if (i === playIndex) map[nr.nodeId] = "running";
-    });
-    onStatuses(map);
-  }, [result, playIndex, onStatuses]);
-
-  const run = useMutation({
-    mutationFn: (id: string) => {
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(testData || "{}");
-      } catch {
-        throw new Error("داده تستی باید JSON معتبر باشد");
-      }
-      return jsonFetch<RunResult>(`/api/workflows/${id}/run`, { method: "POST", body: JSON.stringify({ testData: parsed }) });
-    },
-    onSuccess: (r) => {
-      setResult(r);
-      setPlayIndex(0);
-      qc.invalidateQueries({ queryKey: ["workflows"] });
-      qc.invalidateQueries({ queryKey: ["workflow-detail", workflow?.id] });
-    },
-    onError: (e) => toast.error(errMsg(e)),
-  });
-
-  const playbackDone = !!result && playIndex >= result.nodeRuns.length;
-  const failedNode = result?.nodeRuns.find((nr) => nr.status === "failed") ?? null;
-
-  const artifacts = useMemo(() => {
-    if (!result) return [] as string[];
-    const out: string[] = [];
-    for (const nr of result.nodeRuns) {
-      try {
-        const o = nr.output ? (JSON.parse(nr.output) as Record<string, unknown>) : null;
-        if (!o) continue;
-        if (o.createdTaskTitle) out.push(`وظیفه ساخته شد: ${String(o.createdTaskTitle)}`);
-        else if (o.activityId) out.push("فعالیت در سوابق مشتری ثبت شد");
-        else if (o.notified) out.push(`اعلان: ${String(o.notified)}`);
-        else if (o.dealStage) out.push(`مرحله فرصت ← ${stageLabel(String(o.dealStage))}`);
-      } catch {
-        /* خروجی JSON معتبر نیست — نادیده */
-      }
-    }
-    return out;
-  }, [result]);
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex h-[90vh] max-w-[95vw] flex-col gap-4 sm:max-w-5xl">
-        <DialogHeader dir="rtl" className="shrink-0 text-right">
-          <DialogTitle className="flex items-center gap-2"><FlaskConical className="size-4 text-primary" /> تست فرآیند — {workflow?.name}</DialogTitle>
-          <DialogDescription className="text-right">شرط‌ها با داده تستی ارزیابی می‌شوند؛ وظیفه‌ها و فعالیت‌ها واقعاً در سیستم ساخته می‌شوند.</DialogDescription>
-        </DialogHeader>
-        <div className="flex min-h-0 flex-1 flex-col-reverse gap-4 lg:flex-row">
-          {/* پنل مسیر اجرا — در RTL سمت راست */}
-          <div className="flex w-full min-h-0 shrink-0 flex-col border-t pt-3 lg:w-80 lg:border-t-0 lg:border-l lg:pt-0 lg:ps-4">
-            <h4 className="mb-2 flex items-center gap-1.5 text-xs font-bold text-muted-foreground"><GitBranch className="size-3.5" /> مسیر اجرا</h4>
-            <ScrollArea className="min-h-0 flex-1">
-              {!result ? (
-                <p className="mt-6 text-center text-xs leading-6 text-muted-foreground">پس از اجرا، مسیر گره‌به‌گره این‌جا نمایش داده می‌شود.</p>
-              ) : (
-                <div className="relative space-y-3 py-1">
-                  <span className="absolute bottom-2 right-[11px] top-2 w-px bg-border" aria-hidden />
-                  {result.nodeRuns.map((nr, i) => {
-                    if (i > playIndex) return null; // نمایش تدریجی در حین پخش
-                    const st = i < playIndex ? nr.status : "running";
-                    const isFailed = st === "failed";
-                    const dur = nr.startedAt && nr.finishedAt ? faDuration(new Date(nr.finishedAt).getTime() - new Date(nr.startedAt).getTime()) : null;
-                    const logs = parseJsonArr(nr.logs);
-                    return (
-                      <motion.div key={nr.id} initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.25 }}>
-                        <button type="button" onClick={() => setExpandedStep((p) => (p === nr.id ? null : nr.id))} className="relative flex w-full items-center gap-2.5 rounded-lg border bg-card/60 px-3 py-2 text-right transition hover:border-primary/40">
-                          <span className="relative z-10 flex size-6 shrink-0 items-center justify-center rounded-full border bg-background">
-                            {st === "running" && <Loader2 className="size-3.5 animate-spin text-primary" />}
-                            {st === "success" && <CheckCircle2 className="size-3.5 text-emerald-400" />}
-                            {isFailed && <XCircle className="size-3.5 text-red-400" />}
-                            {st === "running" && <span className="pulse-dot absolute inset-0 rounded-full text-primary" aria-hidden />}
-                          </span>
-                          <span className="min-w-0 flex-1">
-                            <span className="block truncate text-xs font-bold">{nr.nodeName}</span>
-                            {dur && <span className="block text-[10px] text-muted-foreground">{dur}</span>}
-                          </span>
-                          {isFailed && <Badge variant="destructive" className="shrink-0 text-[9px]">خطا</Badge>}
-                          <ChevronDown className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform", expandedStep === nr.id && "rotate-180")} />
-                        </button>
-                        {expandedStep === nr.id && (
-                          <div className="mt-1 space-y-2 rounded-lg border bg-background/60 p-2.5">
-                            {logs.length > 0 && (
-                              <ul className="space-y-1">
-                                {logs.map((l, li) => <li key={li} className="text-[11px] leading-5 text-muted-foreground">• {l}</li>)}
-                              </ul>
-                            )}
-                            {isFailed && (
-                              <div className="space-y-2">
-                                <div className="rounded-md border border-destructive/40 bg-destructive/10 p-2 text-[11px] leading-5 text-red-400">{nr.error}</div>
-                                {result.failureHint && <p className="text-[11px] leading-5 text-muted-foreground">{result.failureHint}</p>}
-                                {playbackDone && (
-                                  <Button size="sm" variant="outline" className="h-7 w-full gap-1.5 text-[11px]" onClick={() => onGoToNode(nr.nodeId)}>
-                                    <Pencil className="size-3" /> رفتن به ویرایشگر و اصلاح این گره
-                                  </Button>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </motion.div>
-                    );
-                  })}
-                </div>
-              )}
-            </ScrollArea>
-          </div>
-          {/* ناحیه اصلی: داده تستی + نتیجه */}
-          <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pe-0.5">
-            <div className="space-y-2">
-              <div className="flex items-center justify-between gap-2">
-                <Label className="text-xs">داده تستی (JSON)</Label>
-                <Button variant="outline" size="sm" className="h-6 gap-1 px-2 text-[10px]" onClick={() => setTestData(template)}>
-                  <FileJson className="size-3" /> درج داده پیش‌فرض
-                </Button>
-              </div>
-              <Textarea dir="ltr" spellCheck={false} className="h-28 resize-none font-mono text-xs" value={testData} onChange={(e) => setTestData(e.target.value)} />
-              <p className="text-[11px] leading-5 text-muted-foreground">شرط‌ها با این داده ارزیابی می‌شوند؛ وظیفه‌ها واقعاً در سیستم ساخته می‌شوند.</p>
-            </div>
-            <Button className="w-full gap-1.5" disabled={run.isPending || !workflow} onClick={() => workflow && run.mutate(workflow.id)}>
-              {run.isPending ? (<><Loader2 className="size-4 animate-spin" /> در حال اجرای فرآیند…</>) : (<><Play className="size-4" /> اجرای فرآیند</>)}
-            </Button>
-            {result && playbackDone && (
-              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
-                {result.status === "success" ? (
-                  <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3">
-                    <div className="flex items-center gap-2 text-sm font-bold text-emerald-400">
-                      <CheckCircle2 className="size-4 shrink-0" /> فرآیند با موفقیت اجرا شد در {faDuration(result.duration)}
-                    </div>
-                    {artifacts.length > 0 && (
-                      <div className="mt-2 flex flex-wrap gap-1.5">
-                        {artifacts.map((a, i) => (
-                          <span key={i} className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] text-emerald-300">{a}</span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3">
-                    <div className="flex items-center gap-2 text-sm font-bold text-red-400">
-                      <AlertCircle className="size-4 shrink-0" /> فرآیند در گره «{failedNode?.nodeName ?? "نامشخص"}» متوقف شد
-                    </div>
-                    {result.failureHint && <p className="mt-1.5 text-[11px] leading-5 text-muted-foreground">{result.failureHint}</p>}
-                    {failedNode && (
-                      <Button size="sm" variant="outline" className="mt-2.5 h-7 gap-1.5 text-[11px]" onClick={() => onGoToNode(failedNode.nodeId)}>
-                        <Pencil className="size-3" /> رفتن به ویرایشگر و اصلاح این گره
-                      </Button>
-                    )}
-                  </div>
-                )}
-              </motion.div>
-            )}
-            {result && playbackDone && result.context && (
-              <details className="rounded-xl border bg-card/40 px-3 py-2 text-xs">
-                <summary className="cursor-pointer select-none text-muted-foreground">کانتکست نهایی اجرا</summary>
-                <pre dir="ltr" className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words font-mono text-[10px] leading-5 text-muted-foreground">{JSON.stringify(result.context, null, 2)}</pre>
-              </details>
-            )}
-          </div>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────
-// EDITOR mode
-// ─────────────────────────────────────────────────────────────────
-
-function WorkflowEditor({ workflow, onBack, focusNodeId, onRunTest }: {
-  workflow: WorkflowDto | null; onBack: () => void; focusNodeId: string | null; onRunTest: (id: string) => void;
-}) {
-  const qc = useQueryClient();
-  const [name, setName] = useState(workflow?.name ?? "");
-  const [desc, setDesc] = useState(workflow?.description ?? "");
-  const [savedId, setSavedId] = useState<string | null>(workflow?.id ?? null);
-  // رسیدن از خطای اجرا → انتخاب مستقیم گره مقصر (بدون effect؛ کامپوننت با key remount می‌شود)
-  const initialNodes = toFlowNodes(workflow?.nodes ?? [{ id: "start_1", type: "crm", position: { x: 260, y: 140 }, data: { label: "شروع", nodeType: "start", description: "نقطه آغاز فرآیند" } }]);
-  const focusTarget = focusNodeId ? initialNodes.find((n) => n.id === focusNodeId) : undefined;
-  const [nodes, setNodes, onNodesChange] = useNodesState<CrmFlowNode>(
-    focusNodeId ? initialNodes.map((n) => ({ ...n, selected: n.id === focusNodeId })) : initialNodes
-  );
-  const [edges, setEdges, onEdgesChange] = useEdgesState<FlowEdge>(toFlowEdges(workflow?.edges ?? []));
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(focusTarget?.id ?? null);
-  const [draft, setDraft] = useState<CrmNodeData | null>(focusTarget ? { ...focusTarget.data } : null);
-  const [runsOpen, setRunsOpen] = useState(false);
-
-  const nodeTypes = useMemo<NodeTypes>(() => ({ crm: CrmNodeView }), []);
-
-  const openConfig = useCallback((node: CrmFlowNode) => {
-    setSelectedNodeId(node.id);
-    setDraft({ ...node.data });
-  }, []);
-
-  const onConnect = useCallback(
-    (c: Connection) => {
-      setEdges((eds) => addEdge({ ...c, id: `e_${Date.now().toString(36)}`, animated: true, label: c.sourceHandle === "true" ? "بله" : c.sourceHandle === "false" ? "خیر" : undefined, ...edgeDecor }, eds));
-    },
-    [setEdges]
-  );
-
-  const addNode = useCallback(
-    (t: (typeof WF_NODE_TYPES)[number]) => {
-      const id = `n_${Date.now().toString(36)}_${Math.floor(Math.random() * 1000)}`;
-      setNodes((nds) => [...nds, { id, type: "crm" as const, position: { x: 300 + (Math.random() * 80 - 40), y: 160 + (Math.random() * 80 - 40) }, data: { label: t.label, nodeType: t.type, description: t.desc } }]);
-    },
-    [setNodes]
-  );
-
-  const patch = useCallback((p: Partial<CrmNodeData>) => setDraft((d) => (d ? { ...d, ...p } : d)), []);
-
-  const applyConfig = useCallback(() => {
-    if (!selectedNodeId || !draft) return;
-    setNodes((nds) => nds.map((n) => (n.id === selectedNodeId ? { ...n, data: { ...n.data, ...draft } } : n)));
-    toast.success("تنظیمات گره اعمال شد");
-  }, [selectedNodeId, draft, setNodes]);
-
-  const deleteSelected = useCallback(() => {
-    if (!selectedNodeId) return;
-    setNodes((nds) => nds.filter((n) => n.id !== selectedNodeId));
-    setEdges((eds) => eds.filter((e) => e.source !== selectedNodeId && e.target !== selectedNodeId));
-    setSelectedNodeId(null);
-    setDraft(null);
-    toast.info("گره حذف شد");
-  }, [selectedNodeId, setNodes, setEdges]);
-
-  const save = useMutation({
-    mutationFn: () => {
-      const body = { name: name.trim(), description: desc.trim() || null, isActive: true, nodes: toWfNodes(nodes), edges: toWfEdges(edges) };
-      return savedId
-        ? jsonFetch<WorkflowDto>(`/api/workflows/${savedId}`, { method: "PUT", body: JSON.stringify(body) })
-        : jsonFetch<WorkflowDto>("/api/workflows", { method: "POST", body: JSON.stringify(body) });
-    },
-    onSuccess: (wf) => {
-      setSavedId(wf.id);
-      qc.invalidateQueries({ queryKey: ["workflows"] });
-      toast.success("فرآیند با موفقیت ذخیره شد");
-    },
-    onError: (e) => toast.error(errMsg(e)),
-  });
-
-  const handleSave = () => {
-    if (!name.trim()) return void toast.error("نام فرآیند را وارد کنید");
-    if (!nodes.some((n) => str(n.data.nodeType) === "start")) return void toast.error("فرآیند بدون گره شروع قابل ذخیره نیست");
-    save.mutate();
-  };
-
-  const selNode = nodes.find((n) => n.id === selectedNodeId) ?? null;
-
-  return (
-    <div className="space-y-4">
-      {/* نوار ابزار */}
-      <div className="flex flex-wrap items-center gap-2">
-        <Button variant="ghost" size="sm" className="gap-1.5" onClick={onBack}><ArrowRight className="size-4" /> بازگشت به فهرست</Button>
-        <Separator orientation="vertical" className="hidden h-6 sm:block" />
-        <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="نام فرآیند" className="h-9 w-48 font-bold" />
-        <Input value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="توضیح (اختیاری)" className="hidden h-9 w-56 text-xs md:block" />
-        <span className="ms-auto" />
-        <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setRunsOpen(true)} disabled={!savedId}><History className="size-4" /> اجراهای اخیر</Button>
-        <Button variant="secondary" size="sm" className="gap-1.5" onClick={() => (savedId ? onRunTest(savedId) : toast.error("برای اجرای تست، ابتدا فرآیند را ذخیره کنید"))}>
-          <FlaskConical className="size-4" /> اجرای تست
-        </Button>
-        <Button size="sm" className="gap-1.5" onClick={handleSave} disabled={save.isPending}>
-          {save.isPending ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />} ذخیره
-        </Button>
-      </div>
-      {/* پالت + بوم */}
-      <div className="flex flex-col gap-4 lg:h-[calc(100vh-220px)] lg:min-h-[500px] lg:flex-row">
-        <aside className="w-full shrink-0 space-y-3 lg:w-72 lg:overflow-y-auto lg:pe-1">
-          <div className="rounded-xl border bg-card/60 p-3">
-            <h3 className="mb-2 flex items-center gap-1.5 text-xs font-bold text-muted-foreground"><MousePointerClick className="size-3.5" /> گره‌ها — برای افزودن کلیک کنید</h3>
-            <div className="flex gap-2 overflow-x-auto pb-1 lg:flex-col lg:overflow-visible lg:pb-0">
-              {WF_NODE_TYPES.map((t) => {
-                const Icon = ICONS[t.icon] ?? WorkflowIcon;
-                return (
-                  <button key={t.type} type="button" onClick={() => addNode(t)} className="flex shrink-0 items-center gap-2 rounded-lg border bg-background/60 px-2.5 py-2 text-right transition hover:border-primary/50 hover:bg-accent/40 lg:w-full">
-                    <span className="flex size-6 shrink-0 items-center justify-center rounded-md" style={{ backgroundColor: `${t.color}26`, color: t.color }}><Icon className="size-3.5" /></span>
-                    <span className="min-w-0">
-                      <span className="block whitespace-nowrap text-xs font-bold lg:whitespace-normal">{t.label}</span>
-                      <span className="hidden truncate text-[10px] text-muted-foreground lg:block">{t.desc}</span>
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-          <AnimatePresence mode="wait">
-            {selNode && draft ? (
-              <motion.div key={`cfg-${selNode.id}`} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 12 }} transition={{ duration: 0.2 }} className="space-y-3 rounded-xl border bg-card/60 p-3">
-                <div className="flex items-center justify-between gap-2">
-                  <h3 className="text-xs font-bold">تنظیمات گره</h3>
-                  <Badge variant="secondary" className="text-[9px]">{nodeMeta(str(draft.nodeType)).label}</Badge>
-                </div>
-                <Field label="عنوان"><Input className="text-xs" value={str(draft.label)} onChange={(e) => patch({ label: e.target.value })} /></Field>
-                <Field label="توضیح"><Textarea rows={2} className="text-xs" value={str(draft.description)} onChange={(e) => patch({ description: e.target.value })} /></Field>
-                <ConfigFields nodeType={str(draft.nodeType)} draft={draft} patch={patch} />
-                <div className="flex gap-2 pt-1">
-                  <Button size="sm" className="h-8 flex-1" onClick={applyConfig}>اعمال</Button>
-                  <Button size="sm" variant="destructive" className="h-8 gap-1.5" onClick={deleteSelected}><Trash2 className="size-3.5" /> حذف گره</Button>
-                </div>
-              </motion.div>
-            ) : (
-              <motion.div key="cfg-empty" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="rounded-xl border border-dashed p-4 text-center text-xs leading-6 text-muted-foreground">
-                روی یک گره در بوم کلیک کنید تا تنظیماتش را ببینید.
-                <br />
-                گره‌ها را از دستگیره‌ها به هم بکشید تا وصل شوند.
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </aside>
-        <div className="relative min-h-[500px] flex-1 overflow-hidden rounded-xl border bg-card/30 lg:h-full">
-          <div dir="ltr" className="h-[60vh] lg:h-full">
-            <ReactFlowProvider>
-              <ReactFlow
-                nodes={nodes} edges={edges}
-                onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect}
-                onNodeClick={(_, node) => openConfig(node)}
-                nodeTypes={nodeTypes}
-                fitView fitViewOptions={{ padding: 0.25 }}
-                nodesDraggable deleteKeyCode={["Backspace", "Delete"]}
-                minZoom={0.25} proOptions={{ hideAttribution: true }}
-              >
-                <Background variant={BackgroundVariant.Dots} gap={20} size={1.6} color="color-mix(in oklab, var(--muted-foreground) 35%, transparent)" />
-                <Controls showInteractive={false} position="bottom-right" />
-                <MiniMap pannable zoomable style={{ width: 140, height: 100 }} maskColor="color-mix(in oklab, var(--card) 60%, transparent)" nodeColor={(n) => nodeMeta(str((n.data as CrmNodeData)?.nodeType)).color} nodeStrokeColor="transparent" />
-              </ReactFlow>
-            </ReactFlowProvider>
-          </div>
-        </div>
-      </div>
-      <RunsHistoryDrawer workflowId={savedId} open={runsOpen} onOpenChange={setRunsOpen} />
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────
-// Module root
+// Module root — هدر + تب‌های پیل
 // ─────────────────────────────────────────────────────────────────
 
 export default function WorkflowsModule() {
   const qc = useQueryClient();
-  const [mode, setMode] = useState<"list" | "editor">("list");
-  const [selected, setSelected] = useState<WorkflowDto | null>(null);
-  const [focusNodeId, setFocusNodeId] = useState<string | null>(null);
-  const [runTarget, setRunTarget] = useState<WorkflowDto | null>(null);
-  const [runOpen, setRunOpen] = useState(false);
+  const [mode, setMode] = useState<"designer" | "list">("designer");
+  const [selected, setSelected] = useState<WorkflowDto | null>(() => templateWorkflow());
+  const [editorKey, setEditorKey] = useState(1);
+  const [autoRun, setAutoRun] = useState(false);
   const [liveStatuses, setLiveStatuses] = useState<Record<string, WfNodeStatus>>({});
 
   const workflowsQ = useQuery({ queryKey: ["workflows"], queryFn: () => jsonFetch<WorkflowDto[]>("/api/workflows") });
@@ -800,76 +1078,86 @@ export default function WorkflowsModule() {
     mutationFn: (id: string) => jsonFetch<{ ok: boolean }>(`/api/workflows/${id}`, { method: "DELETE" }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["workflows"] });
-      toast.success("فرآیند حذف شد");
+      toast.success("فرایند حذف شد");
     },
     onError: (e) => toast.error(errMsg(e)),
   });
 
-  const openEditor = useCallback((wf: WorkflowDto | null) => {
+  const openDesigner = useCallback((wf: WorkflowDto | null, withAutoRun = false) => {
     setSelected(wf);
-    setFocusNodeId(null);
-    setMode("editor");
+    setAutoRun(withAutoRun);
+    setEditorKey((k) => k + 1);
+    setLiveStatuses({});
+    setMode("designer");
   }, []);
 
-  const openRun = useCallback((wf: WorkflowDto) => {
-    setRunTarget(wf);
-    setRunOpen(true);
+  const openTemplate = useCallback(() => {
+    setSelected(templateWorkflow());
+    setAutoRun(false);
+    setEditorKey((k) => k + 1);
+    setLiveStatuses({});
+    setMode("designer");
+    toast.info("قالب نمونه بارگذاری شد — دکمه «تست فرایند» را بزنید");
   }, []);
 
-  const handleRunFromEditor = useCallback(
+  const handleStatuses = useCallback((m: Record<string, WfNodeStatus>) => setLiveStatuses(m), []);
+
+  const handleLoad = useCallback(
     (id: string) => {
-      const wf = workflowsQ.data?.find((w) => w.id === id);
-      if (!wf) return void toast.error("ابتدا فرآیند را ذخیره کنید");
-      openRun(wf);
+      const wf = (workflowsQ.data ?? []).find((w) => w.id === id);
+      if (wf) openDesigner(wf);
     },
-    [workflowsQ.data, openRun]
-  );
-
-  const handleGoToNode = useCallback(
-    (nodeId: string) => {
-      if (!runTarget) return;
-      const wf = workflowsQ.data?.find((w) => w.id === runTarget.id) ?? runTarget;
-      setRunOpen(false);
-      setLiveStatuses({});
-      setSelected(wf);
-      setFocusNodeId(nodeId);
-      setMode("editor");
-    },
-    [runTarget, workflowsQ.data]
+    [workflowsQ.data, openDesigner]
   );
 
   return (
     <NodeStatusContext.Provider value={liveStatuses}>
-      <div className="mx-auto w-full max-w-7xl px-4 py-6">
-        {mode === "list" ? (
+      <div className="mx-auto w-full max-w-[1440px] px-4 py-6">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h1 className="flex items-center gap-2.5 text-2xl font-extrabold tracking-tight text-foreground">
+              <span className="flex size-9 items-center justify-center rounded-xl bg-amber-500/15 text-amber-400"><WorkflowIcon className="size-5" /></span>
+              اتوماسیون فرایندها
+            </h1>
+            <p className="mt-1.5 text-sm text-muted-foreground">فرایندها را گرافیکی طراحی کنید و با «تست فرایند» اجرای واقعی را ببینید — گره سبز یعنی عبور به مرحله بعد، گره قرمز یعنی نیاز به اصلاح.</p>
+          </div>
+          <div className="inline-flex rounded-xl border bg-muted/40 p-1" role="tablist" aria-label="حالت نمایش فرایندها">
+            <button type="button" role="tab" aria-selected={mode === "designer"} onClick={() => setMode("designer")}
+              className={cn("rounded-lg px-4 py-1.5 text-xs font-bold transition", mode === "designer" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}>
+              طراح گرافیکی فرایند
+            </button>
+            <button type="button" role="tab" aria-selected={mode === "list"} onClick={() => setMode("list")}
+              className={cn("rounded-lg px-4 py-1.5 text-xs font-bold transition", mode === "list" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}>
+              فرایندهای جاری
+            </button>
+          </div>
+        </div>
+
+        {mode === "designer" ? (
+          <Designer
+            key={editorKey}
+            workflow={selected}
+            workflows={workflowsQ.data ?? []}
+            firstCustomerId={firstCustomerId}
+            autoRun={autoRun}
+            onStatuses={handleStatuses}
+            onLoad={handleLoad}
+            onTemplate={openTemplate}
+            onNew={() => openDesigner(null)}
+          />
+        ) : (
           <ListView
             workflows={workflowsQ.data ?? []}
             isLoading={workflowsQ.isLoading}
             deletingId={del.variables ? String(del.variables) : null}
-            onNew={() => openEditor(null)}
-            onEdit={openEditor}
-            onRun={openRun}
+            onNew={() => openDesigner(null)}
+            onTemplate={openTemplate}
+            onEdit={(wf) => openDesigner(wf)}
+            onRun={(wf) => openDesigner(wf, true)}
             onDelete={(id) => del.mutate(id)}
-          />
-        ) : (
-          <WorkflowEditor
-            key={selected?.id ?? "new"}
-            workflow={selected}
-            focusNodeId={focusNodeId}
-            onBack={() => { setMode("list"); setSelected(null); setFocusNodeId(null); setLiveStatuses({}); }}
-            onRunTest={handleRunFromEditor}
           />
         )}
       </div>
-      <RunDialog
-        key={runOpen ? "open" : "closed"}
-        workflow={runTarget}
-        open={runOpen}
-        onOpenChange={(v) => { setRunOpen(v); if (!v) setLiveStatuses({}); }}
-        firstCustomerId={firstCustomerId}
-        onGoToNode={handleGoToNode}
-        onStatuses={setLiveStatuses}
-      />
     </NodeStatusContext.Provider>
   );
 }

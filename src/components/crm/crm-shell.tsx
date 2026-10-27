@@ -92,7 +92,7 @@ export default function CrmShell() {
           {/* Accent quick pick */}
           <Popover>
             <PopoverTrigger asChild>
-              <Button variant="ghost" size="icon" className="size-11" aria-label="تغییر رنگ محیط">
+              <Button suppressHydrationWarning variant="ghost" size="icon" className="size-11" aria-label="تغییر رنگ محیط">
                 <Palette className="size-5" />
               </Button>
             </PopoverTrigger>
@@ -319,6 +319,7 @@ function GlobalSearch() {
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <button
+          suppressHydrationWarning
           className="flex items-center gap-2 rounded-xl border bg-muted/50 px-3 min-h-11 text-sm text-muted-foreground hover:bg-accent transition-colors w-10 sm:w-56 md:w-72"
           onClick={() => { setOpen(true); setTimeout(() => inputRef.current?.focus(), 50); }}
           aria-label="جستجوی سراسری"

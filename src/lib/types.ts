@@ -235,13 +235,14 @@ export interface RunDto {
 }
 
 export const WF_NODE_TYPES: { type: string; label: string; icon: string; color: string; desc: string }[] = [
-  { type: "start", label: "شروع", icon: "Play", color: "#10b981", desc: "نقطه آغاز فرآیند" },
-  { type: "end", label: "پایان", icon: "Square", color: "#6b7280", desc: "پایان فرآیند" },
-  { type: "condition", label: "شرط", icon: "GitBranch", color: "#f59e0b", desc: "شاخه‌بندی بر اساس داده تستی" },
-  { type: "create_task", label: "ساخت وظیفه", icon: "ListTodo", color: "#8b5cf6", desc: "ایجاد وظیفه واقعی در سیستم" },
-  { type: "notify", label: "اعلان", icon: "Bell", color: "#06b6d4", desc: "ارسال اعلان/پیام" },
+  { type: "start", label: "نقطه شروع فرایند", icon: "Zap", color: "#f59e0b", desc: "آغازگر فرایند" },
+  { type: "create_task", label: "یک کار واقعی در سازمان", icon: "PenLine", color: "#3b82f6", desc: "ثبت خودکار وظیفه" },
+  { type: "condition", label: "شرط / شاخه‌بندی", icon: "GitBranch", color: "#a855f7", desc: "انشعاب مسیر بر اساس داده" },
+  { type: "approval", label: "تأیید مدیر", icon: "UserCheck", color: "#f43f5e", desc: "ایجاد درخواست تأیید مدیر" },
+  { type: "notify", label: "ارسال پیام یا ایمیل", icon: "Bell", color: "#14b8a6", desc: "اطلاع‌رسانی به مشتری یا تیم" },
+  { type: "delay", label: "مکث برای زمانی", icon: "Timer", color: "#f59e0b", desc: "انتظار برای مدت مشخص" },
+  { type: "end", label: "پایان فرایند", icon: "Flag", color: "#ef4444", desc: "پایان مسیر" },
   { type: "add_activity", label: "ثبت فعالیت", icon: "History", color: "#ec4899", desc: "ثبت در سوابق مشتری" },
   { type: "update_deal", label: "به‌روزرسانی فرصت", icon: "TrendingUp", color: "#f97316", desc: "تغییر مرحله فرصت" },
   { type: "http", label: "درخواست HTTP", icon: "Globe", color: "#14b8a6", desc: "فراخوانی سرویس بیرونی" },
-  { type: "delay", label: "تأخیر", icon: "Timer", color: "#a855f7", desc: "انتظار مشخص" },
 ];

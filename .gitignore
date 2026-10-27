@@ -63,3 +63,4 @@ server.log
 /prisma/dev.db*
 *.sqlite
 !.env.example
+tool-results/

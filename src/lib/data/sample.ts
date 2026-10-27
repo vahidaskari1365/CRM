@@ -203,6 +203,24 @@ export function buildSampleDataset() {
     { id: "e6", source: "note2", target: "act1" },
     { id: "e7", source: "act1", target: "end", animated: true },
   ];
+  const wfCarNodes = [
+    { id: "car_start", type: "crm", position: { x: 40, y: 210 }, data: { label: "درخواست مشتری", nodeType: "start", description: "دریافت درخواست خرید خودرو" } },
+    { id: "car_stock", type: "crm", position: { x: 330, y: 210 }, data: { label: "بررسی موجودی نمایشگاه", nodeType: "create_task", description: "بررسی موجودی خودروی درخواستی", taskTitle: "بررسی موجودی خودرو برای {{customerName}}", priority: "medium" } },
+    { id: "car_cond", type: "crm", position: { x: 640, y: 195 }, data: { label: "خودرو آماده فروش هست؟", nodeType: "condition", description: "بررسی آماده بودن خودروی مورد نظر", expression: "carReady == true" } },
+    { id: "car_finance", type: "crm", position: { x: 950, y: 60 }, data: { label: "بررسی مالی مشتری", nodeType: "create_task", description: "بررسی اعتبار و شرایط پرداخت", taskTitle: "بررسی مالی {{customerName}}", priority: "high" } },
+    { id: "car_deliver", type: "crm", position: { x: 1250, y: 60 }, data: { label: "هماهنگی تحویل خودرو", nodeType: "notify", description: "زمان‌بندی آزمایش و تحویل", message: "قرار آزمایش و تحویل خودرو با {{customerName}} هماهنگ شد" } },
+    { id: "car_info", type: "crm", position: { x: 950, y: 350 }, data: { label: "به مشتری اطلاع بده - ماشین به زودی می‌رسد", nodeType: "notify", description: "اطلاع‌رسانی زمان آماده شدن", message: "{{customerName}} عزیز، خودروی درخواستی به زودی به نمایشگاه می‌رسد" } },
+    { id: "car_end", type: "crm", position: { x: 1550, y: 205 }, data: { label: "پایان", nodeType: "end", description: "" } },
+  ];
+  const wfCarEdges = [
+    { id: "ce1", source: "car_start", target: "car_stock", animated: false },
+    { id: "ce2", source: "car_stock", target: "car_cond", animated: false },
+    { id: "ce3", source: "car_cond", target: "car_finance", sourceHandle: "true", label: "بله", animated: false },
+    { id: "ce4", source: "car_cond", target: "car_info", sourceHandle: "false", label: "خیر", animated: false },
+    { id: "ce5", source: "car_finance", target: "car_deliver", animated: false },
+    { id: "ce6", source: "car_deliver", target: "car_end", animated: false },
+    { id: "ce7", source: "car_info", target: "car_end", animated: false },
+  ];
   const workflows = [
     {
       id: "w_seed_1",
@@ -233,6 +251,15 @@ export function buildSampleDataset() {
         { id: "f5", source: "mail2", target: "end2" },
       ],
       createdAt: daysAgo(18),
+    },
+    {
+      id: "w_seed_3",
+      name: "فروش خودرو (نمونه)",
+      description: "نمونه فرآیند فروش خودرو: بررسی موجودی نمایشگاه، شاخه‌بندی بر اساس آماده بودن خودرو، بررسی مالی و هماهنگی تحویل یا اطلاع‌رسانی به مشتری.",
+      isActive: true,
+      nodes: wfCarNodes,
+      edges: wfCarEdges,
+      createdAt: daysAgo(15),
     },
   ];
 

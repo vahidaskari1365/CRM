@@ -856,8 +856,8 @@ export default function DashboardModule() {
                             {a.deal ? <span className="block text-[11px] text-muted-foreground">{a.deal.title}</span> : null}
                           </div>
                           <div className="shrink-0 space-y-0.5 text-left text-[11px] text-muted-foreground">
-                            <div>{relativeHours(a.createdAt)}</div>
-                            <div>{faDateLong(a.createdAt)}</div>
+                            <div suppressHydrationWarning>{relativeHours(a.createdAt)}</div>
+                            <div suppressHydrationWarning>{faDateLong(a.createdAt)}</div>
                           </div>
                         </div>
                       </motion.div>
@@ -894,6 +894,7 @@ export default function DashboardModule() {
                     <motion.button
                       key={t.id} type="button" onClick={() => navigate("tasks")}
                       aria-label={`${t.title} — ${due.text}`}
+                      suppressHydrationWarning
                       initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }}
                       transition={{ duration: 0.35, ease: EASE, delay: 0.44 + i * 0.04 }}
                       className="flex w-full items-center gap-3 rounded-xl border p-3 text-right shadow-sm transition-colors hover:border-primary/40 hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
@@ -910,6 +911,7 @@ export default function DashboardModule() {
                         </span>
                       </span>
                       <span
+                        suppressHydrationWarning
                         className={cn(
                           "shrink-0 rounded-lg border px-2 py-1 text-[11px]",
                           due.overdue

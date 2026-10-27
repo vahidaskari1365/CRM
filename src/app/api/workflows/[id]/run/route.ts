@@ -21,19 +21,21 @@ function interpolate(template: string, ctx: Ctx): string {
 
 /** ارزیابی امن عبارت شرط با داده تستی */
 function evalCondition(expr: string, ctx: Ctx): boolean {
-  let e = expr.trim();
-  if (!e) throw new Error("عبارت شرط خالی است — در تنظیمات گره شرط، عبارت را وارد کنید");
-  if (/;|=>|\bfunction\b|\bimport\b|\brequire\b|\bprocess\b|\beval\b|\bconstructor\b/i.test(e)) {
+  const raw = expr.trim();
+  if (!raw) throw new Error("عبارت شرط خالی است — در تنظیمات گره شرط، عبارت را وارد کنید");
+  // اعتبارسنجی روی عبارت خام (قبل از جایگذاری مقادیر): بلاک دستورات خطرناک و کاراکتر غیرمجاز
+  if (/;|=>|\bfunction\b|\bimport\b|\brequire\b|\bprocess\b|\beval\b|\bconstructor\b|`|\$/i.test(raw)) {
     throw new Error("عبارت شرط شامل دستور غیرمجاز است");
   }
-  e = e.replace(/[a-zA-Z_]\w*/g, (m) => {
+  if (!/^[\p{L}\p{N}\s+\-*/%.()<>=!&|'"_,:\[\]]*$/u.test(raw)) {
+    throw new Error("عبارت شرط شامل کاراکتر غیرمجاز است");
+  }
+  // جایگذاری امن: هر شناسه با مقدار JSON آن از داده تستی جایگزین می‌شود
+  const e = raw.replace(/[a-zA-Z_]\w*/g, (m) => {
     if (m === "true" || m === "false" || m === "null") return m;
     if (m in ctx) return JSON.stringify(ctx[m] ?? null);
     throw new Error(`متغیر «${m}» در داده تستی تعریف نشده است. آن را در پنل داده تستی اضافه کنید`);
   });
-  if (!/^[\d\s+\-*/%.()<>=!&|'"_,:\[\]]*$/.test(e)) {
-    throw new Error("عبارت شرط شامل کاراکتر غیرمجاز است");
-  }
   try {
     const fn = new Function(`"use strict"; return (${e});`);
     return Boolean(fn());
@@ -81,6 +83,22 @@ async function executeNode(node: WfNode, ctx: Ctx, ds: Awaited<ReturnType<typeof
       return {
         logs: [`وظیفه واقعی «${title}» با اولویت ${d.priority === "urgent" ? "فوری" : d.priority === "high" ? "زیاد" : d.priority === "low" ? "کم" : "متوسط"} ایجاد شد`, `شناسه وظیفه در سیستم: ${task.id.slice(0, 12)}…`],
         output: { createdTaskId: task.id, createdTaskTitle: title },
+      };
+    }
+    case "approval": {
+      const title = interpolate(d.taskTitle || `تأیید مدیر: ${d.label ?? "مرحله فرآیند"}`, ctx);
+      if (!title.trim()) throw new Error("عنوان درخواست تأیید خالی است — در تنظیمات گره، عنوان را وارد کنید");
+      const task = await ds.createTask({
+        title,
+        description: `درخواست تأیید مدیر — ساخته‌شده توسط فرآیند خودکار «${d.label ?? node.id}». پس از بررسی، وظیفه را انجام‌شده بزنید.`,
+        status: "todo",
+        priority: "high",
+        dueDate: new Date(Date.now() + 2 * 86400000),
+        customerId: typeof ctx.customerId === "string" ? ctx.customerId : null,
+      });
+      return {
+        logs: [`درخواست تأیید مدیر ثبت شد: «${title}»`, `وظیفه واقعی تأیید با اولویت «زیاد» ایجاد شد (شناسه: ${task.id.slice(0, 12)}…)`],
+        output: { approvalTaskId: task.id, approvalRequired: title },
       };
     }
     case "notify": {
