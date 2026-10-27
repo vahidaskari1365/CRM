@@ -745,13 +745,15 @@ function Designer({ workflow, workflows, firstCustomerId, autoRun, onStatuses, o
       qc.invalidateQueries({ queryKey: ["workflows"] });
       toast.success(wf.isActive ? "فرایند منتشر شد" : "انتشار فرایند لغو شد");
     } catch (e) {
-      toast.error(errMsg(e));
+      const msg = errMsg(e);
+      if (/یافت نشد/.test(msg)) toast.error("این فرایند روی سرور یافت نشد — دکمه «ذخیره» را بزنید و دوباره انتشار دهید");
+      else toast.error(msg);
     } finally {
       setPublishing(false);
     }
   }, [savedId, isActive, qc]);
 
-  const saveNow = useCallback(async (): Promise<string | null> => {
+  const saveNow = useCallback(async (forceNew = false): Promise<string | null> => {
     if (!name.trim()) {
       toast.error("نام فرایند را وارد کنید");
       return null;
@@ -763,9 +765,19 @@ function Designer({ workflow, workflows, firstCustomerId, autoRun, onStatuses, o
     setSaving(true);
     try {
       const body = { name: name.trim(), description: workflow?.description ?? null, isActive: savedId ? isActive : true, nodes: toWfNodes(nodes), edges: toWfEdges(edges) };
-      const wf = savedId
-        ? await jsonFetch<WorkflowDto>(`/api/workflows/${savedId}`, { method: "PUT", body: JSON.stringify(body) })
-        : await jsonFetch<WorkflowDto>("/api/workflows", { method: "POST", body: JSON.stringify(body) });
+      let wf: WorkflowDto | null = null;
+      if (savedId && !forceNew) {
+        try {
+          wf = await jsonFetch<WorkflowDto>(`/api/workflows/${savedId}`, { method: "PUT", body: JSON.stringify(body) });
+        } catch (e) {
+          // فرایند روی سرور دیگر وجود ندارد (مثلاً بعد از ری‌استارت/ریست داده‌ها) — به‌جای خطا، نسخه جدید ساخته می‌شود
+          if (!/یافت نشد/.test(errMsg(e))) throw e;
+          toast.info("نسخه قبلی این فرایند روی سرور نبود — به‌عنوان نسخه جدید ذخیره شد");
+        }
+      }
+      if (!wf) {
+        wf = await jsonFetch<WorkflowDto>("/api/workflows", { method: "POST", body: JSON.stringify(body) });
+      }
       setSavedId(wf.id);
       setIsActive(wf.isActive);
       qc.invalidateQueries({ queryKey: ["workflows"] });
@@ -803,7 +815,25 @@ function Designer({ workflow, workflows, firstCustomerId, autoRun, onStatuses, o
       qc.invalidateQueries({ queryKey: ["workflows"] });
       qc.invalidateQueries({ queryKey: ["workflow-detail", id] });
     } catch (e) {
-      toast.error(errMsg(e));
+      // «فرآیند یافت نشد» — مثلاً بعد از ری‌استارت سرور یا ریست داده‌ها (ID قدیمی مرورگر):
+      // به‌جای نمایش خطا، فرایند به‌صورت نسخه جدید ذخیره و تست دوباره اجرا می‌شود
+      if (/یافت نشد/.test(errMsg(e))) {
+        const newId = await saveNow(true);
+        if (newId) {
+          try {
+            const r = await jsonFetch<RunResult>(`/api/workflows/${newId}/run`, { method: "POST", body: JSON.stringify({ testData: filled.data }) });
+            setResult(r);
+            setPlayIndex(0);
+            qc.invalidateQueries({ queryKey: ["workflows"] });
+            qc.invalidateQueries({ queryKey: ["workflow-detail", newId] });
+            toast.info("فرایند قبلی روی سرور نبود — نسخه جدید ذخیره شد و تست اجرا شد");
+          } catch (e2) {
+            toast.error(errMsg(e2));
+          }
+        }
+      } else {
+        toast.error(errMsg(e));
+      }
     } finally {
       setRunning(false);
     }
