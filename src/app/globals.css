@@ -1,0 +1,331 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-vazir), "Vazirmatn", "Segoe UI", Tahoma, sans-serif;
+  --font-mono: "Vazirmatn", ui-monospace, monospace;
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+:root {
+  --radius: 0.75rem;
+  --background: oklch(0.985 0.002 280);
+  --foreground: oklch(0.18 0.01 280);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.18 0.01 280);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.18 0.01 280);
+  --primary: oklch(0.606 0.22 295);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.965 0.005 280);
+  --secondary-foreground: oklch(0.25 0.01 280);
+  --muted: oklch(0.962 0.005 280);
+  --muted-foreground: oklch(0.52 0.015 280);
+  --accent: oklch(0.955 0.02 295);
+  --accent-foreground: oklch(0.35 0.1 295);
+  --destructive: oklch(0.577 0.245 27.325);
+  --success: oklch(0.62 0.15 155);
+  --success-foreground: oklch(0.985 0 0);
+  --border: oklch(0.915 0.005 280);
+  --input: oklch(0.915 0.005 280);
+  --ring: oklch(0.606 0.22 295);
+  --chart-1: oklch(0.606 0.22 295);
+  --chart-2: oklch(0.72 0.15 75);
+  --chart-3: oklch(0.62 0.14 165);
+  --chart-4: oklch(0.66 0.19 45);
+  --chart-5: oklch(0.63 0.22 340);
+  --sidebar: oklch(0.975 0.004 280);
+  --sidebar-foreground: oklch(0.18 0.01 280);
+  --sidebar-primary: oklch(0.606 0.22 295);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.94 0.02 295);
+  --sidebar-accent-foreground: oklch(0.35 0.1 295);
+  --sidebar-border: oklch(0.915 0.005 280);
+  --sidebar-ring: oklch(0.606 0.22 295);
+}
+
+.dark {
+  --background: oklch(0.16 0.012 280);
+  --foreground: oklch(0.955 0.005 280);
+  --card: oklch(0.205 0.014 280);
+  --card-foreground: oklch(0.955 0.005 280);
+  --popover: oklch(0.22 0.014 280);
+  --popover-foreground: oklch(0.955 0.005 280);
+  --primary: oklch(0.68 0.2 295);
+  --primary-foreground: oklch(0.16 0.02 295);
+  --secondary: oklch(0.26 0.014 280);
+  --secondary-foreground: oklch(0.955 0.005 280);
+  --muted: oklch(0.26 0.014 280);
+  --muted-foreground: oklch(0.68 0.015 280);
+  --accent: oklch(0.3 0.05 295);
+  --accent-foreground: oklch(0.92 0.05 295);
+  --destructive: oklch(0.704 0.191 22.216);
+  --success: oklch(0.7 0.15 155);
+  --success-foreground: oklch(0.16 0.02 155);
+  --border: oklch(1 0 0 / 9%);
+  --input: oklch(1 0 0 / 13%);
+  --ring: oklch(0.68 0.2 295);
+  --chart-1: oklch(0.68 0.2 295);
+  --chart-2: oklch(0.78 0.15 75);
+  --chart-3: oklch(0.7 0.15 165);
+  --chart-4: oklch(0.72 0.18 45);
+  --chart-5: oklch(0.7 0.2 340);
+  --sidebar: oklch(0.19 0.013 280);
+  --sidebar-foreground: oklch(0.955 0.005 280);
+  --sidebar-primary: oklch(0.68 0.2 295);
+  --sidebar-primary-foreground: oklch(0.16 0.02 295);
+  --sidebar-accent: oklch(0.28 0.03 295);
+  --sidebar-accent-foreground: oklch(0.92 0.05 295);
+  --sidebar-border: oklch(1 0 0 / 9%);
+  --sidebar-ring: oklch(0.68 0.2 295);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    scrollbar-gutter: stable;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-vazir), "Vazirmatn", "Segoe UI", Tahoma, sans-serif;
+    font-feature-settings: "ss01";
+  }
+  ::selection {
+    background: color-mix(in oklab, var(--primary) 25%, transparent);
+  }
+}
+
+/* ── Scrollbar ── */
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: color-mix(in oklab, var(--muted-foreground) 30%, transparent);
+  border-radius: 8px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in oklab, var(--muted-foreground) 50%, transparent);
+}
+
+/* ── Persian digits inside inputs keep latin for editing ── */
+input,
+textarea {
+  font-family: inherit;
+}
+
+/* ── Animated gradient orbs (dashboard hero) ── */
+.orb {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(80px);
+  opacity: 0.35;
+  pointer-events: none;
+  animation: orb-float 14s ease-in-out infinite;
+}
+.orb-2 {
+  animation-delay: -5s;
+  animation-duration: 18s;
+}
+.orb-3 {
+  animation-delay: -9s;
+  animation-duration: 22s;
+}
+@keyframes orb-float {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+  33% {
+    transform: translate(30px, -20px) scale(1.08);
+  }
+  66% {
+    transform: translate(-20px, 15px) scale(0.95);
+  }
+}
+
+/* ── shimmer for skeletons ── */
+.shimmer {
+  background: linear-gradient(
+    100deg,
+    color-mix(in oklab, var(--muted) 100%, transparent) 40%,
+    color-mix(in oklab, var(--muted-foreground) 12%, var(--muted)) 50%,
+    color-mix(in oklab, var(--muted) 100%, transparent) 60%
+  );
+  background-size: 200% 100%;
+  animation: shimmer-move 1.6s linear infinite;
+}
+@keyframes shimmer-move {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+/* ── pulsing status dot ── */
+.pulse-dot {
+  animation: pulse-ring 1.6s ease-out infinite;
+}
+@keyframes pulse-ring {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in oklab, currentColor 45%, transparent);
+  }
+  70% {
+    box-shadow: 0 0 0 7px transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+/* ── React Flow (فرآیندساز) — keep canvas LTR ── */
+.react-flow {
+  --xy-background-color: transparent;
+  --xy-edge-stroke-default: color-mix(in oklab, var(--muted-foreground) 55%, transparent);
+  --xy-edge-stroke-selected-default: var(--primary);
+  --xy-attribution-background-color-default: transparent;
+}
+.react-flow__attribution {
+  display: none;
+}
+.react-flow__edge-path {
+  stroke-width: 2;
+}
+.react-flow__handle {
+  width: 10px;
+  height: 10px;
+  background: var(--card);
+  border: 2px solid color-mix(in oklab, var(--muted-foreground) 50%, transparent);
+}
+.react-flow__handle-connecting {
+  border-color: var(--primary);
+}
+.react-flow__controls-button {
+  background: var(--popover) !important;
+  border-color: var(--border) !important;
+  color: var(--foreground) !important;
+  fill: var(--foreground) !important;
+}
+.react-flow__controls-button:hover {
+  background: var(--accent) !important;
+}
+
+/* workflow node states */
+.wf-node {
+  transition: box-shadow 0.3s ease, border-color 0.3s ease;
+}
+.wf-node-success {
+  border-color: var(--success) !important;
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--success) 25%, transparent);
+}
+.wf-node-failed {
+  border-color: var(--destructive) !important;
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--destructive) 30%, transparent);
+  animation: shake 0.4s ease;
+}
+.wf-node-running {
+  border-color: var(--primary) !important;
+  box-shadow: 0 0 0 4px color-mix(in oklab, var(--primary) 20%, transparent);
+  animation: wf-breathe 1.2s ease-in-out infinite;
+}
+@keyframes wf-breathe {
+  0%,
+  100% {
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--primary) 15%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 8px color-mix(in oklab, var(--primary) 8%, transparent);
+  }
+}
+@keyframes shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-4px);
+  }
+  75% {
+    transform: translateX(4px);
+  }
+}
+
+/* ── print styles for پیش‌فاکتور ── */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .print-area,
+  .print-area * {
+    visibility: visible;
+  }
+  .print-area {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    background: white !important;
+    color: black !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+}
+
+/* ── kanban column ── */
+.kanban-col {
+  min-height: 120px;
+  transition: background 0.2s ease, outline-color 0.2s ease;
+  outline: 2px dashed transparent;
+  outline-offset: -4px;
+}
+.kanban-col.drag-over {
+  background: color-mix(in oklab, var(--primary) 8%, transparent);
+  outline-color: color-mix(in oklab, var(--primary) 40%, transparent);
+}
+
+/* number tabular for latin digits in mini labels */
+.tnum {
+  font-variant-numeric: tabular-nums;
+}

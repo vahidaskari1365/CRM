@@ -1,0 +1,181 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Users & Roles ────────────────────────────────────────────────
+model User {
+  id        String     @id @default(cuid())
+  name      String
+  email     String     @unique
+  role      String     @default("sales") // admin | manager | sales
+  color     String     @default("#8b5cf6") // avatar accent
+  phone     String?
+  createdAt DateTime   @default(now())
+  tasks     Task[]
+  activity  Activity[]
+}
+
+// ─── CRM Core ─────────────────────────────────────────────────────
+model Customer {
+  id        String     @id @default(cuid())
+  name      String
+  company   String
+  phone     String
+  email     String?
+  address   String?
+  industry  String?
+  city      String?
+  status    String     @default("active") // active | inactive | lead
+  tags      String? // comma separated
+  notes     String?
+  createdAt DateTime   @default(now())
+  contacts  Contact[]
+  deals     Deal[]
+  activity  Activity[]
+  tasks     Task[]
+  quotes    Quote[]
+}
+
+model Contact {
+  id         String   @id @default(cuid())
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  name       String
+  position   String?
+  phone      String?
+  email      String?
+  isPrimary  Boolean  @default(false)
+}
+
+model Deal {
+  id           String    @id @default(cuid())
+  title        String
+  customerId   String
+  customer     Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  value        Float     @default(0)
+  stage        String    @default("lead") // lead | qualified | proposal | negotiation | won | lost
+  probability  Int       @default(20) // percent
+  source       String? // ورودی: وبسایت، معرفی، نمایشگاه، تماس سرد...
+  expectedClose DateTime?
+  description  String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  activity     Activity[]
+  tasks        Task[]
+}
+
+model Activity {
+  id         String    @id @default(cuid())
+  type       String // call | meeting | email | note | task
+  title      String
+  content    String?
+  customerId String?
+  customer   Customer? @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  dealId     String?
+  deal       Deal?     @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  userId     String?
+  user       User?     @relation(fields: [userId], references: [id])
+  createdAt  DateTime  @default(now())
+}
+
+model Task {
+  id         String    @id @default(cuid())
+  title      String
+  description String?
+  status     String    @default("todo") // todo | in_progress | done
+  priority   String    @default("medium") // low | medium | high | urgent
+  dueDate    DateTime?
+  assigneeId String?
+  assignee   User?     @relation(fields: [assigneeId], references: [id])
+  customerId String?
+  customer   Customer? @relation(fields: [customerId], references: [id])
+  dealId     String?
+  deal       Deal?     @relation(fields: [dealId], references: [id])
+  createdAt  DateTime  @default(now())
+}
+
+// ─── Quotation (پیش‌فاکتور) ───────────────────────────────────────
+model Product {
+  id          String      @id @default(cuid())
+  name        String
+  code        String
+  unit        String      @default("عدد")
+  price       Float       @default(0)
+  description String?
+  active      Boolean     @default(true)
+  quoteItems  QuoteItem[]
+}
+
+model Quote {
+  id         String      @id @default(cuid())
+  number     String      @unique
+  customerId String
+  customer   Customer    @relation(fields: [customerId], references: [id])
+  status     String      @default("draft") // draft | sent | approved | rejected
+  issueDate  DateTime    @default(now())
+  validUntil DateTime?
+  items      QuoteItem[]
+  subtotal   Float       @default(0)
+  discount   Float       @default(0)
+  tax        Float       @default(0)
+  total      Float       @default(0)
+  notes      String?
+  createdAt  DateTime    @default(now())
+}
+
+model QuoteItem {
+  id        String   @id @default(cuid())
+  quoteId   String
+  quote     Quote    @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  productId String?
+  product   Product? @relation(fields: [productId], references: [id])
+  name      String
+  quantity  Float    @default(1)
+  unitPrice Float    @default(0)
+  discount  Float    @default(0) // percent per line
+  lineTotal Float    @default(0)
+}
+
+// ─── Automation (فرآیندساز) ───────────────────────────────────────
+model Workflow {
+  id          String        @id @default(cuid())
+  name        String
+  description String?
+  isActive    Boolean       @default(false)
+  nodes       String        @default("[]") // JSON
+  edges       String        @default("[]") // JSON
+  runs        WorkflowRun[]
+  createdAt   DateTime      @default(now())
+}
+
+model WorkflowRun {
+  id         String            @id @default(cuid())
+  workflowId String
+  workflow   Workflow          @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  status     String            @default("running") // running | success | failed
+  testData   String?
+  duration   Int? // ms
+  startedAt  DateTime          @default(now())
+  finishedAt DateTime?
+  nodeRuns   WorkflowNodeRun[]
+}
+
+model WorkflowNodeRun {
+  id         String      @id @default(cuid())
+  runId      String
+  run        WorkflowRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  nodeId     String
+  nodeName   String
+  nodeType   String
+  status     String      @default("pending") // pending | running | success | failed | skipped
+  logs       String? // JSON array
+  error      String?
+  output     String? // JSON
+  startedAt  DateTime?
+  finishedAt DateTime?
+}
