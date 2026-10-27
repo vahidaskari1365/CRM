@@ -1,21 +1,12 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { dataService } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-    const [customers, deals, tasks, quotes, activities, users] = await Promise.all([
-      db.customer.findMany({ include: { _count: true } }),
-      db.deal.findMany({ include: { customer: { select: { id: true, company: true, name: true } } } }),
-      db.task.findMany({ include: { assignee: true, customer: { select: { id: true, company: true } } } }),
-      db.quote.findMany(),
-      db.activity.findMany({
-        include: { customer: { select: { id: true, company: true } }, user: { select: { id: true, name: true, color: true } }, deal: { select: { id: true, title: true } } },
-        orderBy: { createdAt: "desc" },
-      }),
-      db.user.findMany(),
-    ]);
+    const ds = await dataService();
+    const { customers, deals, tasks, quotes, activities } = await ds.getDashboardRaw();
 
     const now = new Date();
     const openStages = ["lead", "qualified", "proposal", "negotiation"];
@@ -36,13 +27,11 @@ export async function GET() {
     const monthlyRevenue = wonDeals.filter((d) => new Date(d.updatedAt) >= thisMonthStart).reduce((s, d) => s + d.value, 0);
     const avgDealSize = openDeals.length ? pipelineValue / openDeals.length : 0;
 
-    // stage stats
     const stageStats = openStages.concat(["won", "lost"]).map((stage) => {
       const list = deals.filter((d) => d.stage === stage);
       return { stage, count: list.length, value: list.reduce((s, d) => s + d.value, 0) };
     });
 
-    // monthly series (6 months)
     const monthly: { key: string; revenue: number; newDeals: number; activities: number }[] = [];
     for (let i = 5; i >= 0; i--) {
       const start = new Date(now.getFullYear(), now.getMonth() - i, 1);
@@ -56,7 +45,6 @@ export async function GET() {
       });
     }
 
-    // top customers by deal value
     const byCustomer = new Map<string, { name: string; value: number; deals: number }>();
     for (const d of deals) {
       if (!d.customer) continue;
@@ -67,7 +55,6 @@ export async function GET() {
     }
     const topCustomers = [...byCustomer.values()].sort((a, b) => b.value - a.value).slice(0, 5);
 
-    // sources
     const bySource = new Map<string, { count: number; value: number }>();
     for (const d of deals) {
       const k = d.source ?? "سایر";
@@ -78,11 +65,9 @@ export async function GET() {
     }
     const sources = [...bySource.entries()].map(([source, v]) => ({ source, ...v }));
 
-    // task + activity stats
     const taskStats = ["todo", "in_progress", "done"].map((status) => ({ status, count: tasks.filter((t) => t.status === status).length }));
     const activityTypes = ["call", "meeting", "email", "note"].map((type) => ({ type, count: activities.filter((a) => a.type === type).length }));
 
-    // insights (قانون‌محور)
     const insights: string[] = [];
     if (pipelineValue > 0) {
       const topStage = stageStats.filter((s) => openStages.includes(s.stage)).sort((a, b) => b.value - a.value)[0];

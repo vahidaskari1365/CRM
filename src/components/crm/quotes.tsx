@@ -221,7 +221,7 @@ export default function QuotesModule() {
                         </TableCell>
                         <TableCell className="hidden md:table-cell text-sm text-muted-foreground">{faDate(q.issueDate)}</TableCell>
                         <TableCell className="hidden lg:table-cell text-sm text-muted-foreground">{faDate(q.validUntil)}</TableCell>
-                        <TableCell className="text-center">{faNum(q._count?.items ?? (q.items?.length ?? 0))}</TableCell>
+                        <TableCell className="text-center">{faNum(q.items?.length ?? 0)}</TableCell>
                         <TableCell className="font-bold whitespace-nowrap">{faMoney(q.total)}</TableCell>
                         <TableCell>
                           <Badge variant="secondary" className={`${statusBg[q.status]} border-0`}>

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { dataService } from "@/lib/data";
 import type { WfEdge, WfNode } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -7,6 +7,7 @@ export const maxDuration = 60;
 
 // ─────────────────────────────────────────────────────────────────
 // موتور اجرای فرآیند رودین — اجرای واقعی گام‌به‌گام با ثبت لاگ
+// (روی لایه داده مشترک: هم با دیتابیس و هم در حالت حافظه کار می‌کند)
 // ─────────────────────────────────────────────────────────────────
 
 type Ctx = Record<string, unknown>;
@@ -46,11 +47,10 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 interface NodeResult {
   logs: string[];
   output?: Ctx;
-  branch?: string | null; // برای شرط: true | false
-  merge?: Ctx; // افزودن به کانتکست
+  branch?: string | null;
 }
 
-async function executeNode(node: WfNode, ctx: Ctx): Promise<NodeResult> {
+async function executeNode(node: WfNode, ctx: Ctx, ds: Awaited<ReturnType<typeof dataService>>): Promise<NodeResult> {
   const d = node.data ?? ({} as WfNode["data"]);
   switch (d.nodeType) {
     case "start": {
@@ -70,15 +70,13 @@ async function executeNode(node: WfNode, ctx: Ctx): Promise<NodeResult> {
     case "create_task": {
       const title = interpolate(d.taskTitle || "وظیفه ساخته‌شده توسط فرآیند", ctx);
       if (!title.trim()) throw new Error("عنوان وظیفه خالی است — در تنظیمات گره، عنوان را وارد کنید");
-      const task = await db.task.create({
-        data: {
-          title,
-          description: `ساخته‌شده توسط فرآیند خودکار «${d.label ?? node.id}»`,
-          status: "todo",
-          priority: d.priority ?? "medium",
-          dueDate: new Date(Date.now() + 86400000),
-          customerId: typeof ctx.customerId === "string" ? ctx.customerId : null,
-        },
+      const task = await ds.createTask({
+        title,
+        description: `ساخته‌شده توسط فرآیند خودکار «${d.label ?? node.id}»`,
+        status: "todo",
+        priority: d.priority ?? "medium",
+        dueDate: new Date(Date.now() + 86400000),
+        customerId: typeof ctx.customerId === "string" ? ctx.customerId : null,
       });
       return {
         logs: [`وظیفه واقعی «${title}» با اولویت ${d.priority === "urgent" ? "فوری" : d.priority === "high" ? "زیاد" : d.priority === "low" ? "کم" : "متوسط"} ایجاد شد`, `شناسه وظیفه در سیستم: ${task.id.slice(0, 12)}…`],
@@ -93,9 +91,7 @@ async function executeNode(node: WfNode, ctx: Ctx): Promise<NodeResult> {
     case "add_activity": {
       const title = interpolate(d.title || d.label || "فعالیت فرآیند", ctx);
       if (typeof ctx.customerId === "string" && ctx.customerId) {
-        const act = await db.activity.create({
-          data: { type: "note", title, content: `ثبت‌شده توسط فرآیند خودکار: ${d.description ?? ""}`, customerId: ctx.customerId },
-        });
+        const act = await ds.createCustomerActivity(ctx.customerId, { type: "note", title, content: `ثبت‌شده توسط فرآیند خودکار: ${d.description ?? ""}` });
         return { logs: [`فعالیت «${title}» در سوابق مشتری ثبت شد (شناسه: ${act.id.slice(0, 12)}…)`], output: { activityId: act.id } };
       }
       return { logs: [`شناسه مشتری (customerId) در داده تستی موجود نیست — فعالیت «${title}» به‌صورت شبیه‌سازی ثبت شد`], output: { simulated: true } };
@@ -103,7 +99,7 @@ async function executeNode(node: WfNode, ctx: Ctx): Promise<NodeResult> {
     case "update_deal": {
       const stage = (d.stage as string) ?? "negotiation";
       if (typeof ctx.dealId === "string" && ctx.dealId) {
-        const deal = await db.deal.update({ where: { id: ctx.dealId }, data: { stage, probability: d.probability ? Number(d.probability) : undefined } }).catch(() => null);
+        const deal = await ds.updateDeal(ctx.dealId, { stage, ...(d.probability ? { probability: Number(d.probability) } : {}) }).catch(() => null);
         if (!deal) throw new Error(`فرصت با شناسه «${ctx.dealId}» یافت نشد`);
         return { logs: [`فرصت «${deal.title}» به مرحله جدید منتقل شد`], output: { dealStage: stage } };
       }
@@ -145,29 +141,27 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: "داده تستی باید JSON معتبر باشد" }, { status: 400 });
   }
 
-  const wf = await db.workflow.findUnique({ where: { id } });
+  const ds = await dataService();
+  const wf = await ds.getWorkflow(id);
   if (!wf) return NextResponse.json({ error: "فرآیند یافت نشد" }, { status: 404 });
 
-  let nodes: WfNode[] = [];
-  let edges: WfEdge[] = [];
-  try {
-    nodes = JSON.parse(wf.nodes);
-    edges = JSON.parse(wf.edges);
-  } catch {
-    return NextResponse.json({ error: "ساختار فرآیند (گره‌ها/اتصال‌ها) معتبر نیست" }, { status: 400 });
-  }
+  const nodes: WfNode[] = wf.nodes as unknown as WfNode[];
+  const edges: WfEdge[] = wf.edges as unknown as WfEdge[];
 
-  const run = await db.workflowRun.create({ data: { workflowId: id, testData: JSON.stringify(testData), status: "running" } });
+  const runId = await ds.createRun(id, testData);
   const startedAt = Date.now();
   const ctx: Ctx = { ...testData };
 
   const startNode = nodes.find((n) => (n.data as WfNode["data"])?.nodeType === "start");
   if (!startNode) {
-    await db.workflowRun.update({ where: { id: run.id }, data: { status: "failed", finishedAt: new Date(), duration: Date.now() - startedAt } });
-    await db.workflowNodeRun.create({
-      data: { runId: run.id, nodeId: "-", nodeName: "شروع", nodeType: "start", status: "failed", error: "هیچ گره «شروع» در فرآیند وجود ندارد", logs: JSON.stringify(["فرآیند بدون گره شروع قابل اجرا نیست"]), startedAt: new Date(), finishedAt: new Date() },
+    await ds.finishRun(runId, "failed", Date.now() - startedAt);
+    await ds.createNodeRun(runId, {
+      nodeId: "-", nodeName: "شروع", nodeType: "start", status: "failed",
+      error: "هیچ گره «شروع» در فرآیند وجود ندارد",
+      logs: JSON.stringify(["فرآیند بدون گره شروع قابل اجرا نیست"]),
+      startedAt: new Date(), finishedAt: new Date(),
     });
-    return NextResponse.json({ runId: run.id, status: "failed" });
+    return NextResponse.json({ runId, status: "failed" });
   }
 
   let current: WfNode | undefined = startNode;
@@ -177,58 +171,51 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   while (current && step < 50) {
     step += 1;
-    const nodeData = current.data as WfNode["data"];
+    const node: WfNode = current;
+    const nodeData = node.data as WfNode["data"];
     const nodeStart = Date.now();
-    const nr = await db.workflowNodeRun.create({
-      data: { runId: run.id, nodeId: current.id, nodeName: nodeData.label ?? current.id, nodeType: nodeData.nodeType ?? current.type, status: "running", startedAt: new Date() },
+    const nrId = await ds.createNodeRun(runId, {
+      nodeId: node.id,
+      nodeName: nodeData.label ?? node.id,
+      nodeType: nodeData.nodeType ?? node.type,
+      status: "running",
+      startedAt: new Date(),
     });
     try {
-      const result = await executeNode(current, ctx);
-      if (result.merge) Object.assign(ctx, result.merge);
-      await db.workflowNodeRun.update({
-        where: { id: nr.id },
-        data: {
-          status: "success",
-          logs: JSON.stringify(result.logs),
-          output: result.output ? JSON.stringify(result.output) : null,
-          finishedAt: new Date(),
-        },
+      const result = await executeNode(node, ctx, ds);
+      await ds.updateNodeRun(nrId, {
+        status: "success",
+        logs: JSON.stringify(result.logs),
+        output: result.output ? JSON.stringify(result.output) : null,
+        finishedAt: new Date(),
       });
-      // یافتن گره بعدی
-      let outgoing = edges.filter((e) => e.source === current!.id);
+      void nodeStart;
+      let outgoing = edges.filter((e) => e.source === node.id);
       if (nodeData.nodeType === "condition") {
         outgoing = outgoing.filter((e) => (e.sourceHandle ?? "true") === (result.branch ?? "true"));
       }
       const nextEdge = outgoing[0];
       if (!nextEdge) {
-        // انتهای مسیر (بدون گره پایان یا شاخه بدون اتصال)
-        await db.workflowNodeRun.create({
-          data: { runId: run.id, nodeId: `__end_${step}`, nodeName: "پایان مسیر", nodeType: "end", status: "success", logs: JSON.stringify([nodeData.nodeType === "condition" ? "شاخه انتخاب‌شده به گره دیگری متصل نیست — مسیر در همین‌جا پایان یافت" : "گره بعدی وجود ندارد — مسیر پایان یافت"]), startedAt: new Date(), finishedAt: new Date() },
+        await ds.createNodeRun(runId, {
+          nodeId: `__end_${step}`, nodeName: "پایان مسیر", nodeType: "end", status: "success",
+          logs: JSON.stringify([nodeData.nodeType === "condition" ? "شاخه انتخاب‌شده به گره دیگری متصل نیست — مسیر در همین‌جا پایان یافت" : "گره بعدی وجود ندارد — مسیر پایان یافت"]),
+          startedAt: new Date(), finishedAt: new Date(),
         });
         current = undefined;
         break;
       }
       current = nodes.find((n) => n.id === nextEdge.target);
       if (!current) throw new Error(`اتصال به گره ناموجود «${nextEdge.target}»`);
-      if ((current.data as WfNode["data"]).nodeType === "end") {
-        // اجرای گره پایان در چرخه بعدی
-      }
     } catch (err) {
       failed = true;
-      failNodeId = current.id;
+      failNodeId = node.id;
       const msg = err instanceof Error ? err.message : "خطای ناشناخته در اجرای گره";
-      await db.workflowNodeRun.update({
-        where: { id: nr.id },
-        data: { status: "failed", error: msg, logs: JSON.stringify([`خطا در گره «${nodeData.label}»: ${msg}`]), finishedAt: new Date() },
+      await ds.updateNodeRun(nrId, {
+        status: "failed",
+        error: msg,
+        logs: JSON.stringify([`خطا در گره «${nodeData.label}»: ${msg}`]),
+        finishedAt: new Date(),
       });
-      // علامت‌گذاری بقیه گره‌های مسیر به‌عنوان ردشده
-      const visited = new Set<string>();
-      let cur: WfNode | undefined = nodes.find((n) => n.id === (startNode?.id ?? ""));
-      while (cur && !visited.has(cur.id)) {
-        visited.add(cur.id);
-        const outs = edges.filter((e) => e.source === cur!.id);
-        cur = outs.length ? nodes.find((n) => n.id === outs[0].target) : undefined;
-      }
       current = undefined;
       break;
     }
@@ -236,22 +223,19 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   const status = failed ? "failed" : "success";
   const duration = Date.now() - startedAt;
-  await db.workflowRun.update({
-    where: { id: run.id },
-    data: { status, finishedAt: new Date(), duration },
-  });
+  await ds.finishRun(runId, status, duration);
 
-  const nodeRuns = await db.workflowNodeRun.findMany({ where: { runId: run.id }, orderBy: { startedAt: "asc" } });
+  const nodeRuns = await ds.listNodeRuns(runId);
   const failNode = failed ? nodes.find((n) => n.id === failNodeId) : null;
 
   return NextResponse.json({
-    runId: run.id,
+    runId,
     status,
     duration,
     context: ctx,
     failureHint: failNode
       ? `گره «${(failNode.data as WfNode["data"]).label}» با خطا متوقف شد. تنظیمات این گره یا داده تستی ورودی را بررسی کنید.`
       : undefined,
-    nodeRuns: nodeRuns.sort((a, b) => new Date(a.startedAt ?? a.id).getTime() - new Date(b.startedAt ?? b.id).getTime()),
+    nodeRuns: nodeRuns as unknown as Array<Record<string, unknown>>,
   });
 }

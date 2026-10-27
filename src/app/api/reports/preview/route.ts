@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { dataService } from "@/lib/data";
 import type { ReportRequest, ReportResponse } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -14,38 +14,59 @@ const GROUP_LABELS: Record<string, Record<string, string>> = {
 
 const MONTHS_FA = ["فروردین", "اردیبهشت", "خرداد", "تیر", "مرداد", "شهریور", "مهر", "آبان", "آذر", "دی", "بهمن", "اسفند"];
 
-function monthKey(d: Date): { key: string; label: string } {
-  const y = d.getFullYear();
+function monthLabel(d: Date): string {
   const m = d.getMonth();
-  return { key: `${y}-${String(m + 1).padStart(2, "0")}`, label: `${MONTHS_FA[m]} ${new Intl.DateTimeFormat("fa-IR", { year: "2-digit" }).format(d)}` };
+  return `${MONTHS_FA[m]} ${new Intl.DateTimeFormat("fa-IR", { year: "2-digit" }).format(d)}`;
 }
 
 export async function POST(req: NextRequest) {
   try {
     const body = (await req.json()) as ReportRequest;
     const { entity, groupBy, metric } = body;
+    const ds = await dataService();
+    const raw = await ds.getDashboardRaw();
 
-    // واکشی داده با فیلترها
     type Row = Record<string, unknown>;
     let rows: Row[] = [];
-    let include: Record<string, unknown> = {};
 
     if (entity === "deals") {
-      include = { customer: { select: { company: true, industry: true } } };
-      const data = await db.deal.findMany({ include: include as never });
-      rows = data.map((d) => ({ ...d, customerName: d.customer?.company ?? "—", industry: d.customer?.industry ?? "—" }));
+      rows = raw.deals.map((d) => ({
+        ...d,
+        customerName: d.customer?.company ?? "—",
+        industry: "—",
+        createdAt: d.createdAt,
+      }));
+      // صنعت از مشتریان
+      const indMap = new Map(raw.customers.map((c) => [c.id, c.industry ?? "—"]));
+      rows = rows.map((r) => ({ ...r, industry: indMap.get(String(r.customerId)) ?? "—" }));
     } else if (entity === "customers") {
-      const data = await db.customer.findMany({ include: { _count: { select: { deals: true, activity: true, quotes: true } } } });
-      rows = data.map((c) => ({ ...c, dealCount: c._count.deals, activityCount: c._count.activity }));
+      rows = raw.customers.map((c) => ({
+        ...c,
+        dealCount: c._count.deals,
+        activityCount: c._count.activity,
+        createdAt: c.createdAt,
+      }));
     } else if (entity === "tasks") {
-      const data = await db.task.findMany({ include: { assignee: true, customer: { select: { company: true } } } });
-      rows = data.map((t) => ({ ...t, assigneeName: t.assignee?.name ?? "—", customerName: t.customer?.company ?? "—" }));
+      rows = raw.tasks.map((t) => ({
+        ...t,
+        assigneeName: t.assignee?.name ?? "—",
+        customerName: t.customer?.company ?? "—",
+        createdAt: t.createdAt,
+        dueDate: t.dueDate,
+      }));
     } else if (entity === "quotes") {
-      const data = await db.quote.findMany({ include: { customer: { select: { company: true, industry: true } } } });
-      rows = data.map((q) => ({ ...q, customerName: q.customer?.company ?? "—" }));
+      rows = raw.quotes.map((q) => ({
+        ...q,
+        customerName: q.customer?.company ?? "—",
+        createdAt: q.createdAt,
+      }));
     } else {
-      const data = await db.activity.findMany({ include: { customer: { select: { company: true } }, user: true } });
-      rows = data.map((a) => ({ ...a, customerName: a.customer?.company ?? "—", userName: a.user?.name ?? "—" }));
+      rows = raw.activities.map((a) => ({
+        ...a,
+        customerName: a.customer?.company ?? "—",
+        userName: a.user?.name ?? "—",
+        createdAt: a.createdAt,
+      }));
     }
 
     // فیلترها
@@ -59,10 +80,9 @@ export async function POST(req: NextRequest) {
     for (const r of rows) {
       let label: string;
       if (groupBy === "month") {
-        const created = new Date((r.createdAt as Date) ?? new Date());
-        label = monthKey(created).label;
+        label = monthLabel(new Date(r.createdAt as Date));
       } else if (groupBy === "dueMonth") {
-        label = r.dueDate ? monthKey(new Date(r.dueDate as Date)).label : "بدون سررسید";
+        label = r.dueDate ? monthLabel(new Date(r.dueDate as Date)) : "بدون سررسید";
       } else if (groupBy === "customer" || groupBy === "customerName") {
         label = String(r.customerName ?? "—");
       } else if (groupBy === "assignee") {
@@ -73,8 +93,8 @@ export async function POST(req: NextRequest) {
         const v = Number(r.value ?? 0);
         label = v >= 500_000_000 ? "+۵۰۰ میلیون" : v >= 200_000_000 ? "۲۰۰ تا ۵۰۰ میلیون" : v >= 100_000_000 ? "۱۰۰ تا ۲۰۰ میلیون" : "زیر ۱۰۰ میلیون";
       } else {
-        const raw = String(r[groupBy] ?? "—");
-        label = GROUP_LABELS[entity]?.[raw] ?? raw;
+        const rawLabel = String(r[groupBy] ?? "—");
+        label = GROUP_LABELS[entity]?.[rawLabel] ?? rawLabel;
       }
       const cur = groups.get(label) ?? { value: 0, count: 0 };
       cur.count += 1;

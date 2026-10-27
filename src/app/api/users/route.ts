@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { dataService } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-    const users = await db.user.findMany({ orderBy: { createdAt: "asc" } });
+    const ds = await dataService();
+    const users = await ds.listUsers();
     return NextResponse.json(users);
   } catch (e) {
     console.error(e);

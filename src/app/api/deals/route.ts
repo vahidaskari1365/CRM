@@ -1,17 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { dataService } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   try {
+    const ds = await dataService();
     const { searchParams } = new URL(req.url);
     const stage = searchParams.get("stage") ?? "";
-    const deals = await db.deal.findMany({
-      where: stage ? { stage } : {},
-      include: { customer: { select: { id: true, company: true, name: true } } },
-      orderBy: { updatedAt: "desc" },
-    });
+    const deals = await ds.listDeals(stage || undefined);
     return NextResponse.json(deals);
   } catch (e) {
     console.error(e);
@@ -21,20 +18,18 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    const ds = await dataService();
     const body = await req.json();
     if (!body.title || !body.customerId) return NextResponse.json({ error: "عنوان و مشتری الزامی است" }, { status: 400 });
-    const deal = await db.deal.create({
-      data: {
-        title: body.title,
-        customerId: body.customerId,
-        value: Number(body.value) || 0,
-        stage: body.stage ?? "lead",
-        probability: Number(body.probability) || 20,
-        source: body.source ?? null,
-        expectedClose: body.expectedClose ? new Date(body.expectedClose) : null,
-        description: body.description ?? null,
-      },
-      include: { customer: { select: { id: true, company: true, name: true } } },
+    const deal = await ds.createDeal({
+      title: body.title,
+      customerId: body.customerId,
+      value: Number(body.value) || 0,
+      stage: body.stage ?? "lead",
+      probability: Number(body.probability) || 20,
+      source: body.source ?? null,
+      expectedClose: body.expectedClose ? new Date(body.expectedClose) : null,
+      description: body.description ?? null,
     });
     return NextResponse.json(deal, { status: 201 });
   } catch (e) {

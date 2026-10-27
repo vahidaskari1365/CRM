@@ -12,6 +12,7 @@ export interface UserDto {
   role: string;
   color: string;
   phone?: string | null;
+  createdAt?: string;
 }
 
 export interface CustomerDto {

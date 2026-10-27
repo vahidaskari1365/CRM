@@ -1,19 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { dataService } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
 
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
+    const ds = await dataService();
     const body = await req.json();
-    const data: Record<string, unknown> = {};
-    for (const k of ["title", "stage", "source", "description"]) if (k in body) data[k] = body[k];
-    if ("value" in body) data.value = Number(body.value) || 0;
-    if ("probability" in body) data.probability = Number(body.probability) || 0;
-    if ("customerId" in body) data.customerId = body.customerId;
-    if ("expectedClose" in body) data.expectedClose = body.expectedClose ? new Date(body.expectedClose) : null;
-    const deal = await db.deal.update({ where: { id }, data, include: { customer: { select: { id: true, company: true, name: true } } } });
+    const deal = await ds.updateDeal(id, {
+      ...(body.expectedClose !== undefined ? { expectedClose: body.expectedClose ? new Date(body.expectedClose) : null } : {}),
+      ...body,
+    });
+    if (!deal) return NextResponse.json({ error: "فرصت یافت نشد" }, { status: 404 });
     return NextResponse.json(deal);
   } catch (e) {
     console.error(e);
@@ -24,7 +23,8 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
-    await db.deal.delete({ where: { id } });
+    const ds = await dataService();
+    await ds.deleteDeal(id);
     return NextResponse.json({ ok: true });
   } catch (e) {
     console.error(e);

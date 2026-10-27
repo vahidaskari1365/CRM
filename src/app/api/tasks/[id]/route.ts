@@ -1,22 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { dataService } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
 
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
+    const ds = await dataService();
     const body = await req.json();
-    const data: Record<string, unknown> = {};
-    for (const k of ["title", "description", "status", "priority", "assigneeId", "customerId", "dealId"]) {
-      if (k in body) data[k] = body[k] === "" ? null : body[k];
-    }
-    if ("dueDate" in body) data.dueDate = body.dueDate ? new Date(body.dueDate) : null;
-    const task = await db.task.update({
-      where: { id },
-      data,
-      include: { assignee: true, customer: { select: { id: true, company: true } }, deal: { select: { id: true, title: true } } },
+    const task = await ds.updateTask(id, {
+      ...(body.dueDate !== undefined ? { dueDate: body.dueDate ? new Date(body.dueDate) : null } : {}),
+      ...body,
     });
+    if (!task) return NextResponse.json({ error: "وظیفه یافت نشد" }, { status: 404 });
     return NextResponse.json(task);
   } catch (e) {
     console.error(e);
@@ -27,7 +23,8 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
-    await db.task.delete({ where: { id } });
+    const ds = await dataService();
+    await ds.deleteTask(id);
     return NextResponse.json({ ok: true });
   } catch (e) {
     console.error(e);

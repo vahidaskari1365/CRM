@@ -4,7 +4,7 @@ import { useState, useSyncExternalStore } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
-import { Sun, Moon, Monitor, Palette, Users, ShieldCheck, Puzzle, Check } from "lucide-react";
+import { Sun, Moon, Monitor, Palette, Users, ShieldCheck, Puzzle, Check, Database } from "lucide-react";
 import { useTheme } from "next-themes";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -37,6 +37,11 @@ export default function SettingsModule() {
     queryFn: async () => (await fetch("/api/users")).json(),
   });
 
+  const { data: health } = useQuery<{ mode: string; label: string }>({
+    queryKey: ["health"],
+    queryFn: async () => (await fetch("/api/health")).json(),
+  });
+
   const themeOptions = [
     { key: "light", label: "روشن", icon: Sun, desc: "محیط روشن و مینیمال" },
     { key: "dark", label: "تاریک", icon: Moon, desc: "راحت برای چشم در شب" },
@@ -45,9 +50,17 @@ export default function SettingsModule() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">تنظیمات</h1>
-        <p className="text-sm text-muted-foreground mt-1">شخصی‌سازی محیط کار، تم و مدیریت کاربران</p>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">تنظیمات</h1>
+          <p className="text-sm text-muted-foreground mt-1">شخصی‌سازی محیط کار، تم و مدیریت کاربران</p>
+        </div>
+        {health && (
+          <Badge variant="secondary" className={health.mode === "prisma" ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-0" : "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-0"}>
+            <Database className="size-3.5 ml-1" />
+            ذخیره‌سازی: {health.label}
+          </Badge>
+        )}
       </div>
 
       {/* Theme */}
