@@ -2,12 +2,12 @@
 
 import "@xyflow/react/dist/style.css";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent as ReactDragEvent, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
-import { ReactFlow, Background, BackgroundVariant, Handle, MarkerType, Position, ReactFlowProvider, addEdge, useEdgesState, useNodesState, type Connection, type Edge, type Node, type NodeProps, type NodeTypes } from "@xyflow/react";
+import { ReactFlow, Background, BackgroundVariant, Handle, MarkerType, Position, ReactFlowProvider, addEdge, useEdgesState, useNodesState, useReactFlow, type Connection, type Edge, type Node, type NodeProps, type NodeTypes, type OnEdgesChange, type OnNodesChange, type XYPosition } from "@xyflow/react";
 import { toast } from "sonner";
-import { AlertCircle, Bell, Check, CheckCircle2, ChevronDown, FileJson, Flag, GitBranch, Globe, History, Info, LayoutTemplate, Loader2, PenLine, Pencil, Play, Plus, Settings2, Timer, Trash2, TrendingUp, Upload, UserCheck, Workflow as WorkflowIcon, XCircle, Zap, type LucideIcon } from "lucide-react";
+import { AlertCircle, Bell, Check, CheckCircle2, ChevronDown, FileJson, Flag, GitBranch, Globe, Grab, History, Info, LayoutTemplate, Loader2, PenLine, Pencil, Play, Plus, Settings2, Timer, Trash2, TrendingUp, Upload, UserCheck, Workflow as WorkflowIcon, XCircle, Zap, type LucideIcon } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { DEAL_STAGES, TASK_PRIORITIES, faDateTime, faDuration, faNum, faPercent, stageLabel } from "@/lib/format";
@@ -121,6 +121,14 @@ function parseJsonArr(raw: string | null | undefined): string[] {
   }
 }
 
+/** نوع MIME هنگام درگ گره از پالت به بوم */
+const DRAG_MIME = "application/rudin-node";
+/** ظاهر یال سبز «مسیر طی‌شده» در حین و پس از پخش اجرا — مثل حرکت مسیر در n8n */
+const GREEN_EDGE = {
+  style: { stroke: "#10b981", strokeWidth: 2 } as CSSProperties,
+  marker: () => ({ type: MarkerType.ArrowClosed as const, width: 15, height: 15, color: "#10b981" }),
+};
+
 // ─── پالت افزودن گره — دقیقاً مطابق طرح ───
 const PALETTE_GROUPS: { title?: string; types: string[] }[] = [
   { types: ["start"] },
@@ -201,23 +209,33 @@ function CrmNodeView({ id, data, selected }: NodeProps<CrmFlowNode>) {
         status === "running" && "wf-node-running",
         hasRun && !status && "opacity-40 saturate-50"
       )}
-      style={{ width: 224 }}
+      style={{ width: 224, ...(status === "success" ? { background: "color-mix(in oklab, #10b981 9%, var(--card))" } : null) }}
     >
       <Handle type="target" position={Position.Left} style={{ width: 9, height: 9, background: "var(--muted-foreground)", borderColor: "var(--background)" }} />
       <div className="flex items-start gap-2.5 p-3">
-        <span className="flex size-8 shrink-0 items-center justify-center rounded-lg" style={{ backgroundColor: `${meta.color}22`, color: meta.color }}>
-          <Icon className="size-4" />
-        </span>
+        <motion.span
+          key={status ?? "idle"}
+          initial={status === "success" ? { scale: 0.35, rotate: -18 } : false}
+          animate={{ scale: 1, rotate: 0 }}
+          transition={{ type: "spring", stiffness: 420, damping: 20 }}
+          className="flex size-8 shrink-0 items-center justify-center rounded-lg"
+          style={status === "success" ? { backgroundColor: "#10b981", color: "#ffffff" } : { backgroundColor: `${meta.color}22`, color: meta.color }}
+        >
+          {status === "success" ? <Check className="size-4" /> : <Icon className="size-4" />}
+        </motion.span>
         <span className="min-w-0 flex-1 pt-0.5">
           <span className="block text-[13px] font-bold leading-5 text-foreground">{str(data.label) || meta.label}</span>
           {str(data.description) ? <span className="mt-0.5 block text-[11px] leading-4 text-muted-foreground">{data.description}</span> : null}
         </span>
       </div>
-      {status && (
+      {status === "running" && (
         <span className="absolute -left-2.5 -top-2.5 flex size-6 items-center justify-center rounded-full border bg-background shadow-md">
-          {status === "running" && <Loader2 className="size-3.5 animate-spin text-primary" />}
-          {status === "success" && <CheckCircle2 className="size-3.5 text-emerald-400" />}
-          {status === "failed" && <XCircle className="size-3.5 text-red-400" />}
+          <Loader2 className="size-3.5 animate-spin text-primary" />
+        </span>
+      )}
+      {status === "failed" && (
+        <span className="absolute -left-2.5 -top-2.5 flex size-6 items-center justify-center rounded-full border bg-background shadow-md">
+          <XCircle className="size-3.5 text-red-400" />
         </span>
       )}
       {isCondition ? (
@@ -341,6 +359,7 @@ function Palette({ onAdd }: { onAdd: (t: (typeof WF_NODE_TYPES)[number]) => void
     <div className="flex h-full flex-col rounded-2xl border bg-card/50 p-3">
       <h3 className="mb-2.5 flex items-center gap-1.5 text-xs font-bold text-foreground">
         <Plus className="size-3.5 text-amber-400" /> افزودن گره
+        <span className="ms-auto flex items-center gap-1 text-[9px] font-normal text-muted-foreground"><Grab className="size-3" /> بکشید</span>
       </h3>
       <div className="flex gap-2 overflow-x-auto pb-1 xl:flex-col xl:overflow-x-visible xl:overflow-y-auto xl:pb-0">
         {PALETTE_GROUPS.map((g, gi) => (
@@ -352,8 +371,14 @@ function Palette({ onAdd }: { onAdd: (t: (typeof WF_NODE_TYPES)[number]) => void
                 const Icon = ICONS[meta.icon] ?? WorkflowIcon;
                 return (
                   <button
-                    key={t} type="button" onClick={() => onAdd(meta)}
-                    className="flex min-w-[150px] shrink-0 items-center gap-2 rounded-xl border bg-background/60 px-2.5 py-2 text-right transition hover:border-amber-500/50 hover:bg-accent/40 xl:w-full xl:min-w-0"
+                    key={t} type="button" draggable
+                    onDragStart={(e) => {
+                      e.dataTransfer.setData(DRAG_MIME, t);
+                      e.dataTransfer.effectAllowed = "move";
+                    }}
+                    onClick={() => onAdd(meta)}
+                    title="بکشید و روی بوم رها کنید — یا کلیک کنید"
+                    className="flex min-w-[150px] shrink-0 cursor-grab items-center gap-2 rounded-xl border bg-background/60 px-2.5 py-2 text-right transition hover:border-amber-500/50 hover:bg-accent/40 active:cursor-grabbing xl:w-full xl:min-w-0"
                   >
                     <span className="flex size-7 shrink-0 items-center justify-center rounded-lg" style={{ backgroundColor: `${meta.color}22`, color: meta.color }}>
                       <Icon className="size-3.5" />
@@ -371,7 +396,7 @@ function Palette({ onAdd }: { onAdd: (t: (typeof WF_NODE_TYPES)[number]) => void
       </div>
       <div className="mt-auto hidden items-start gap-1.5 pt-3 text-[10px] leading-4 text-muted-foreground xl:flex">
         <Info className="mt-0.5 size-3 shrink-0" />
-        <span>برای اتصال روی دایره خروجی هر گره کلیک کنید، سپس گره مقصد را بزنید.</span>
+        <span>گره‌ها را بکشید و روی بوم رها کنید یا روی آن‌ها کلیک کنید. برای اتصال، روی دایره خروجی گره بزنید و گره مقصد را انتخاب کنید.</span>
       </div>
     </div>
   );
@@ -620,6 +645,103 @@ function ReportPanel({ result, playIndex, running, open, onToggle, testData, onT
 }
 
 // ─────────────────────────────────────────────────────────────────
+// FlowCanvas — بوم با پشتیبانی درگ‌انددراپ گره از پالت (مثل n8n)
+// ─────────────────────────────────────────────────────────────────
+
+function FlowCanvas({ nodes, edges, onNodesChange, onEdgesChange, onConnect, onNodeClick, onPaneClick, nodeTypes, onDropType }: {
+  nodes: CrmFlowNode[];
+  edges: FlowEdge[];
+  onNodesChange: OnNodesChange<CrmFlowNode>;
+  onEdgesChange: OnEdgesChange<FlowEdge>;
+  onConnect: (c: Connection) => void;
+  onNodeClick: (node: CrmFlowNode) => void;
+  onPaneClick: () => void;
+  nodeTypes: NodeTypes;
+  onDropType: (type: string, position: XYPosition) => void;
+}) {
+  const { screenToFlowPosition } = useReactFlow();
+  const [dragOver, setDragOver] = useState(false);
+  const dragDepth = useRef(0);
+
+  const onDragEnter = useCallback((e: ReactDragEvent<HTMLDivElement>) => {
+    if (!Array.from(e.dataTransfer.types).includes(DRAG_MIME)) return;
+    e.preventDefault();
+    dragDepth.current += 1;
+    setDragOver(true);
+  }, []);
+
+  const onDragOver = useCallback((e: ReactDragEvent<HTMLDivElement>) => {
+    if (!Array.from(e.dataTransfer.types).includes(DRAG_MIME)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+  }, []);
+
+  const onDragLeave = useCallback((e: ReactDragEvent<HTMLDivElement>) => {
+    if (!Array.from(e.dataTransfer.types).includes(DRAG_MIME)) return;
+    dragDepth.current = Math.max(0, dragDepth.current - 1);
+    if (dragDepth.current === 0) setDragOver(false);
+  }, []);
+
+  const onDrop = useCallback(
+    (e: ReactDragEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      dragDepth.current = 0;
+      setDragOver(false);
+      const t = e.dataTransfer.getData(DRAG_MIME);
+      if (!t) return;
+      const p = screenToFlowPosition({ x: e.clientX, y: e.clientY });
+      // مرکز گره (عرض ۲۲۴px) زیر نشانگر ماوس قرار بگیرد
+      onDropType(t, { x: p.x - 112, y: p.y - 26 });
+    },
+    [screenToFlowPosition, onDropType]
+  );
+
+  return (
+    <div
+      dir="ltr"
+      className={cn(CANVAS_H, "relative rounded-2xl", dragOver && "outline-2 outline-dashed outline-amber-500/80")}
+      onDragEnter={onDragEnter}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+    >
+      <ReactFlow
+        nodes={nodes}
+        edges={edges}
+        onNodesChange={onNodesChange}
+        onEdgesChange={onEdgesChange}
+        onConnect={onConnect}
+        onNodeClick={(_, node) => onNodeClick(node)}
+        onPaneClick={onPaneClick}
+        nodeTypes={nodeTypes}
+        defaultViewport={{ x: 24, y: 10, zoom: 0.78 }}
+        deleteKeyCode={["Backspace", "Delete"]}
+        minZoom={0.2}
+        maxZoom={1.6}
+        proOptions={{ hideAttribution: true }}
+      >
+        <Background variant={BackgroundVariant.Dots} gap={22} size={1.7} color="color-mix(in oklab, var(--muted-foreground) 32%, transparent)" />
+      </ReactFlow>
+      <AnimatePresence>
+        {dragOver && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-amber-500/5"
+          >
+            <span className="flex items-center gap-2 rounded-full border border-amber-500/60 bg-background/95 px-4 py-2 text-xs font-bold text-amber-500 shadow-lg">
+              <Plus className="size-4" /> رها کنید تا گره اینجا اضافه شود
+            </span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────
 // Designer — طراح گرافیکی فرایند
 // ─────────────────────────────────────────────────────────────────
 
@@ -677,6 +799,53 @@ function Designer({ workflow, workflows, firstCustomerId, autoRun, onStatuses, o
     onStatuses(map);
   }, [result, playIndex, onStatuses]);
 
+  // حرکت تصویری مسیر مثل n8n: یالِ «گره قبلی ← گره در حال اجرا» متحرک می‌شود و مسیر طی‌شده سبز می‌ماند
+  const edgesRef = useRef(edges);
+  edgesRef.current = edges;
+  useEffect(() => {
+    if (!result) return;
+    const done = result.nodeRuns.slice(0, playIndex);
+    const next = result.nodeRuns[playIndex];
+    const travelingIds = new Set<string>();
+    const traveledIds = new Set<string>();
+    for (let i = 0; i + 1 < done.length; i++) {
+      const a = done[i];
+      const b = done[i + 1];
+      edgesRef.current.forEach((e) => {
+        if (e.source === a.nodeId && e.target === b.nodeId) traveledIds.add(e.id);
+      });
+    }
+    if (next && done.length > 0) {
+      const last = done[done.length - 1];
+      edgesRef.current.forEach((e) => {
+        if (e.source === last.nodeId && e.target === next.nodeId) travelingIds.add(e.id);
+      });
+    }
+    setEdges((prev) => {
+      let changed = false;
+      const mapped = prev.map((e) => {
+        const isGreen = e.style?.stroke === "#10b981";
+        if (travelingIds.has(e.id)) {
+          if (e.animated && isGreen) return e;
+          changed = true;
+          return { ...e, animated: true, style: { ...GREEN_EDGE.style }, markerEnd: GREEN_EDGE.marker() };
+        }
+        if (traveledIds.has(e.id)) {
+          if (!e.animated && isGreen) return e;
+          changed = true;
+          return { ...e, animated: false, style: { ...GREEN_EDGE.style }, markerEnd: GREEN_EDGE.marker() };
+        }
+        if (isGreen || e.animated) {
+          changed = true;
+          const lbl = typeof e.label === "string" ? e.label : undefined;
+          return { ...e, animated: false, style: undefined, ...edgeVisual(lbl) };
+        }
+        return e;
+      });
+      return changed ? mapped : prev;
+    });
+  }, [result, playIndex, setEdges]);
+
   const openConfig = useCallback((node: CrmFlowNode) => {
     setSelectedNodeId(node.id);
     setDraft({ ...node.data });
@@ -700,6 +869,17 @@ function Designer({ workflow, workflows, firstCustomerId, autoRun, onStatuses, o
     (t: (typeof WF_NODE_TYPES)[number]) => {
       const id = `n_${Date.now().toString(36)}_${Math.floor(Math.random() * 1000)}`;
       setNodes((nds) => [...nds, { id, type: "crm" as const, position: { x: 140 + (nds.length % 5) * 70, y: 90 + (nds.length % 4) * 80 }, data: { label: t.label, nodeType: t.type, description: t.desc } }]);
+    },
+    [setNodes]
+  );
+
+  /** افزودن گره با درگ‌انددراپ روی مختصات دقیق بوم */
+  const addNodeAt = useCallback(
+    (t: string, position: XYPosition) => {
+      const meta = nodeMeta(t);
+      const id = `n_${Date.now().toString(36)}_${Math.floor(Math.random() * 1000)}`;
+      setNodes((nds) => [...nds, { id, type: "crm" as const, position, data: { label: meta.label, nodeType: meta.type, description: meta.desc } }]);
+      toast.success(`گره «${meta.label}» روی بوم اضافه شد`);
     },
     [setNodes]
   );
@@ -888,23 +1068,19 @@ function Designer({ workflow, workflows, firstCustomerId, autoRun, onStatuses, o
           <ConfigPanel node={selNode} draft={draft} patch={patch} apply={applyConfig} remove={deleteSelected} />
         </div>
         <div className="relative min-w-0 flex-1 overflow-hidden rounded-2xl border bg-background shadow-sm">
-          <div dir="ltr" className={CANVAS_H}>
-            <ReactFlowProvider>
-              <ReactFlow
-                nodes={nodes} edges={edges}
-                onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect}
-                onNodeClick={(_, node) => openConfig(node)}
-                onPaneClick={clearSelection}
-                nodeTypes={nodeTypes}
-                defaultViewport={{ x: 24, y: 10, zoom: 0.78 }}
-                deleteKeyCode={["Backspace", "Delete"]}
-                minZoom={0.2} maxZoom={1.6}
-                proOptions={{ hideAttribution: true }}
-              >
-                <Background variant={BackgroundVariant.Dots} gap={22} size={1.7} color="color-mix(in oklab, var(--muted-foreground) 32%, transparent)" />
-              </ReactFlow>
-            </ReactFlowProvider>
-          </div>
+          <ReactFlowProvider>
+            <FlowCanvas
+              nodes={nodes}
+              edges={edges}
+              onNodesChange={onNodesChange}
+              onEdgesChange={onEdgesChange}
+              onConnect={onConnect}
+              onNodeClick={openConfig}
+              onPaneClick={clearSelection}
+              nodeTypes={nodeTypes}
+              onDropType={addNodeAt}
+            />
+          </ReactFlowProvider>
         </div>
         <div className="w-full shrink-0 xl:h-[56vh] xl:min-h-[440px] xl:w-52 xl:overflow-hidden">
           <Palette onAdd={addNode} />
