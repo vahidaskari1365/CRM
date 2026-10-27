@@ -12,6 +12,7 @@ import { AlertCircle, Bell, Check, CheckCircle2, ChevronDown, FileJson, Flag, Gi
 import { cn } from "@/lib/utils";
 import { DEAL_STAGES, TASK_PRIORITIES, faDateTime, faDuration, faNum, faPercent, stageLabel } from "@/lib/format";
 import { WF_NODE_TYPES } from "@/lib/types";
+import { buildDefaultTestData, ensureConditionVars } from "@/lib/wf-defaults";
 import type { CustomerDto, RunDto, WorkflowDto, WfEdge, WfNode } from "@/lib/types";
 
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
@@ -128,21 +129,7 @@ const PALETTE_GROUPS: { title?: string; types: string[] }[] = [
   { title: "انتظار / خروج", types: ["delay", "end"] },
 ];
 
-const KNOWN_TEST_VARS: Record<string, unknown> = { dealValue: 150000000, contractValue: 60000000, carReady: true, stockCount: 2 };
-
-/** داده تستی پیش‌فرض: متغیرهای شرط‌ها را با مقادیر گذرنده پر می‌کند */
-function buildDefaultTestData(nodes: CrmFlowNode[], firstCustomerId?: string): string {
-  const obj: Record<string, unknown> = { customerName: "مشتری نمونه" };
-  if (firstCustomerId) obj.customerId = firstCustomerId;
-  for (const n of nodes) {
-    if (str(n.data.nodeType) !== "condition") continue;
-    for (const m of str(n.data.expression).match(/[a-zA-Z_]\w*/g) ?? []) {
-      if (m === "true" || m === "false" || m === "null" || m in obj) continue;
-      obj[m] = m in KNOWN_TEST_VARS ? KNOWN_TEST_VARS[m] : 100000000;
-    }
-  }
-  return JSON.stringify(obj, null, 2);
-}
+/** داده تستی پیش‌فرض: متغیرهای شرط‌ها را با مقادیر گذرنده پر می‌کند (پیاده‌سازی مشترک در lib/wf-defaults) */
 
 /** قالب نمونه «فروش خودرو (نمونه)» — همان فرایند طرح */
 function carTemplate(): { nodes: WfNode[]; edges: WfEdge[] } {
@@ -805,9 +792,12 @@ function Designer({ workflow, workflows, firstCustomerId, autoRun, onStatuses, o
       return;
     }
     if (firstCustomerId && !parsed.customerId) parsed.customerId = firstCustomerId;
+    // تکمیل خودکار متغیرهای شرط‌ها در داده تستی — حتی اگر بعد از باز شدن طراح گره/شرط جدید اضافه شده باشد
+    const filled = ensureConditionVars(parsed, toWfNodes(nodes));
+    if (filled.added.length > 0) setTestData(JSON.stringify(filled.data, null, 2));
     setRunning(true);
     try {
-      const r = await jsonFetch<RunResult>(`/api/workflows/${id}/run`, { method: "POST", body: JSON.stringify({ testData: parsed }) });
+      const r = await jsonFetch<RunResult>(`/api/workflows/${id}/run`, { method: "POST", body: JSON.stringify({ testData: filled.data }) });
       setResult(r);
       setPlayIndex(0);
       qc.invalidateQueries({ queryKey: ["workflows"] });
@@ -817,7 +807,7 @@ function Designer({ workflow, workflows, firstCustomerId, autoRun, onStatuses, o
     } finally {
       setRunning(false);
     }
-  }, [running, savedId, saveNow, testData, firstCustomerId, qc]);
+  }, [running, savedId, saveNow, testData, firstCustomerId, nodes, qc]);
 
   // اجرای خودکار پس از «اجرای تست» از فهرست فرایندها
   const autoRan = useRef(false);

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { dataService } from "@/lib/data";
+import { ensureConditionVars } from "@/lib/wf-defaults";
 import type { WfEdge, WfNode } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -19,27 +20,40 @@ function interpolate(template: string, ctx: Ctx): string {
   });
 }
 
-/** ارزیابی امن عبارت شرط با داده تستی */
+/** کلمات رزرو JS — به‌عنوان پارامتر تابع قابل استفاده نیستند */
+const RESERVED = new Set([
+  "true", "false", "null", "undefined", "this", "super", "new", "typeof", "instanceof", "in", "of", "void", "delete",
+  "if", "else", "for", "while", "do", "switch", "case", "default", "break", "continue",
+  "function", "return", "class", "extends", "const", "let", "var", "import", "export",
+  "try", "catch", "finally", "throw", "yield", "await", "async",
+]);
+
+/**
+ * ارزیابی امن عبارت شرط با داده تستی.
+ * به‌جای جایگذاری متنی، مقادیر به‌عنوان پارامتر تابع پاس داده می‌شوند تا
+ * رشته‌های داخل کوتیشن (مثل status == "new") به‌اشتباه متغیر فرض نشوند.
+ */
 function evalCondition(expr: string, ctx: Ctx): boolean {
   const raw = expr.trim();
   if (!raw) throw new Error("عبارت شرط خالی است — در تنظیمات گره شرط، عبارت را وارد کنید");
-  // اعتبارسنجی روی عبارت خام (قبل از جایگذاری مقادیر): بلاک دستورات خطرناک و کاراکتر غیرمجاز
+  // اعتبارسنجی روی عبارت خام: بلاک دستورات خطرناک و کاراکتر غیرمجاز
   if (/;|=>|\bfunction\b|\bimport\b|\brequire\b|\bprocess\b|\beval\b|\bconstructor\b|`|\$/i.test(raw)) {
     throw new Error("عبارت شرط شامل دستور غیرمجاز است");
   }
   if (!/^[\p{L}\p{N}\s+\-*/%.()<>=!&|'"_,:\[\]]*$/u.test(raw)) {
     throw new Error("عبارت شرط شامل کاراکتر غیرمجاز است");
   }
-  // جایگذاری امن: هر شناسه با مقدار JSON آن از داده تستی جایگزین می‌شود
-  const e = raw.replace(/[a-zA-Z_]\w*/g, (m) => {
-    if (m === "true" || m === "false" || m === "null") return m;
-    if (m in ctx) return JSON.stringify(ctx[m] ?? null);
-    throw new Error(`متغیر «${m}» در داده تستی تعریف نشده است. آن را در پنل داده تستی اضافه کنید`);
-  });
+  // فقط کلیدهای شناسه‌معتبر و غیررزرو به‌عنوان پارامتر پاس می‌شوند
+  const keys = Object.keys(ctx).filter((k) => /^[A-Za-z_$][\w$]*$/.test(k) && !RESERVED.has(k));
   try {
-    const fn = new Function(`"use strict"; return (${e});`);
-    return Boolean(fn());
+    const fn = new Function(...keys, `"use strict"; return (${raw});`);
+    return Boolean(fn(...keys.map((k) => ctx[k] ?? null)));
   } catch (err) {
+    const msg = err instanceof Error ? err.message : "";
+    const missing = /(\S+) is not defined/.exec(msg);
+    if (missing) {
+      throw new Error(`متغیر «${missing[1]}» در داده تستی تعریف نشده است. آن را در پنل داده تستی اضافه کنید`);
+    }
     throw new Error(`خطا در ارزیابی عبارت «${expr}»: ${err instanceof Error ? err.message : "نامشخص"}`);
   }
 }
@@ -52,11 +66,15 @@ interface NodeResult {
   branch?: string | null;
 }
 
-async function executeNode(node: WfNode, ctx: Ctx, ds: Awaited<ReturnType<typeof dataService>>): Promise<NodeResult> {
+async function executeNode(node: WfNode, ctx: Ctx, ds: Awaited<ReturnType<typeof dataService>>, autoFilledVars: string[] = []): Promise<NodeResult> {
   const d = node.data ?? ({} as WfNode["data"]);
   switch (d.nodeType) {
     case "start": {
-      return { logs: ["فرآیند آغاز شد", `داده تستی: ${JSON.stringify(ctx)}`] };
+      const logs = ["فرآیند آغاز شد", `داده تستی: ${JSON.stringify(ctx)}`];
+      if (autoFilledVars.length > 0) {
+        logs.push(`متغیرهای گمشده داده تستی به‌صورت خودکار تکمیل شد: ${autoFilledVars.map((v) => `${v}=${JSON.stringify(ctx[v])}`).join("، ")}`);
+      }
+      return { logs };
     }
     case "end": {
       return { logs: ["فرآیند با موفقیت به پایان رسید ✔"] };
@@ -166,6 +184,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const nodes: WfNode[] = wf.nodes as unknown as WfNode[];
   const edges: WfEdge[] = wf.edges as unknown as WfEdge[];
 
+  // تکمیل خودکار متغیرهای عبارت شرط‌ها در داده تستی — هیچ تستی به‌خاطر متغیر تعریف‌نشده شکست نمی‌خورد
+  const filled = ensureConditionVars(testData, nodes);
+  testData = filled.data;
+  const autoFilledVars = filled.added;
+
   const runId = await ds.createRun(id, testData);
   const startedAt = Date.now();
   const ctx: Ctx = { ...testData };
@@ -200,7 +223,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       startedAt: new Date(),
     });
     try {
-      const result = await executeNode(node, ctx, ds);
+      const result = await executeNode(node, ctx, ds, autoFilledVars);
       await ds.updateNodeRun(nrId, {
         status: "success",
         logs: JSON.stringify(result.logs),
